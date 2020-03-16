@@ -1,0 +1,12 @@
+maintainer:
+  email: "ssp-ope@supership.jp"
+capabilities:
+  app:
+    mediaTypes:
+      - banner
+      - native
+  site:
+    mediaTypes:
+      - banner
+      - native
+

@@ -1,0 +1,62 @@
+{
+    "id": "58278"
+}
+
+
+"ad": "<!DOCTYPE html>\n  <head>\n    <meta charset=\"UTF-8\">\n    <script src=\"https://i.socdm.com/sdk/js/adg-script-base.js\" type=\"text/javascript\"></script>\n    <script type=\"text/javascript\">\n      adsettings = {\n        locationid  : 58278,\n        rotation    : 0,\n        displaytype : 1,\n        sdktype     : \"0\",\n        scheduleid  : 512601\n      };\n    </script>\n    <style>\n      body {\n        margin:0;\n        padding:0;\n      }\n    </style>\n  </head>\n  <body>\n    <div id=\"medibasspContainer\">\n      <iframe src=\"https://s3-ap-northeast-1.amazonaws.com/sdk-temp/adg-sample-ad/300x250.html?prc=-Cuepak&rd=https%3A%2F%2Ftg.socdm.com%2Frd%2Fv1%2Fz%2FhKFj2gDLY2hzbT0xODYsYmQyZTlmY2QvNTgyNzgvU1NQTE9DLzUxMjYwMS83MjExNS43Njg1NS41MTI2MDEvMTA5MzkyNi82NDkxOS81ODI3ODpTU1BMT0M6Ki9jdD0xNTgyNzA4NzcyNzc3O3NyPWh0dHBzO2RzcGlkPTMwMTtwcj16RGFfYVY0O3ByYj15UTtwcm89eVE7cHJvYz1KUFk7Y3JkMnk9MTA5LjA2O2NyeTJkPTAuMDA5MTY5MjY0NjI0OTc3MDc2OTtpZHg9MDulc2VxaWTaACQyYTZlYTkwNy0xMzNhLTYwMmYtODlhYy01ODViNzcxMjg5YWWnc2VxdGltZa0xNTgyNzA4NzcyNzc3pHh1aWS4WE52SVNNQ281bUlBQU1hN2dOUUFBQUFB%2Fp%2Fctsv%3Dm-ad115%3Bseqid%3D2a6ea907-133a-602f-89ac-585b771289ae%3Bseqctx%3Dgat3by5hZy5mdHlwZaEx%3B%2Fg%2FU%3A%3Furl%3D\" style=\"border: 0px;\" width=\"300\" height=\"250\" frameborder=\"0\" scrolling=\"no\"></iframe>\n    </div>\n  </body>\n",
+                "beacon": "<img src=\"https://tg.socdm.com/bc/v3?b=Y2hzbT0zNDAsOGY0YzQxMmJpZD01ODI3OCZwb3M9U1NQTE9DJmFkPTUxMjYwMS83MjExNS43Njg1NS41MTI2MDEvMTA5MzkyNi82NDkxOS81ODI3ODpTU1BMT0M6Ki9pZHg9MDtkc3BpZD0zMDE7cHI9ekRhX2FWNDtwcmI9eVE7cHJvPXlRO3Byb2M9SlBZO2NyZDJ5PTEwOS4wNjtjcnkyZD0wLjAwOTE2OTI2NDYyNDk3NzA3Njk7cHJ2PWlqekFWbVlvcG5iVFdQdHFobWRDdWVkVzQ3dDI1NTBLZmIxVmJiN0s7YWNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQW51bGwlN0Q7YXNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQTUyJTJDJTIybWFyZ2luJTIyJTNBZmFsc2UlN0Q7JmV4PTE1ODI3MDg3NzImY3Q9MTU4MjcwODc3Mjc3NyZzcj1odHRw&amp;xuid=XNvISMCo5mIAAMa7gNQAAAAA&amp;ctsv=m-ad115&amp;seqid=2a6ea907-133a-602f-89ac-585b771289ae&amp;seqtime=1582708772777&amp;seqctx=gat3by5hZy5mdHlwZaEx&amp;t=.gif\" width=\"1\" height=\"1\" style=\"display:none;border:none;padding:0;margin:0;width:1px;height:1px\"/>",
+                "beaconurl": "https://tg.socdm.com/bc/v3?b=Y2hzbT0zNDAsOGY0YzQxMmJpZD01ODI3OCZwb3M9U1NQTE9DJmFkPTUxMjYwMS83MjExNS43Njg1NS41MTI2MDEvMTA5MzkyNi82NDkxOS81ODI3ODpTU1BMT0M6Ki9pZHg9MDtkc3BpZD0zMDE7cHI9ekRhX2FWNDtwcmI9eVE7cHJvPXlRO3Byb2M9SlBZO2NyZDJ5PTEwOS4wNjtjcnkyZD0wLjAwOTE2OTI2NDYyNDk3NzA3Njk7cHJ2PWlqekFWbVlvcG5iVFdQdHFobWRDdWVkVzQ3dDI1NTBLZmIxVmJiN0s7YWNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQW51bGwlN0Q7YXNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQTUyJTJDJTIybWFyZ2luJTIyJTNBZmFsc2UlN0Q7JmV4PTE1ODI3MDg3NzImY3Q9MTU4MjcwODc3Mjc3NyZzcj1odHRw&xuid=XNvISMCo5mIAAMa7gNQAAAAA&ctsv=m-ad115&seqid=2a6ea907-133a-602f-89ac-585b771289ae&seqtime=1582708772777&seqctx=gat3by5hZy5mdHlwZaEx&t=.gif",
+                "cpm": 46.6,
+                "creativeid": "DummyDsp_SdkTeam_supership.jp",
+                "displaytype": "1",
+                "h": 250,
+                "ids": {
+                    "anid": "",
+                    "diid": "",
+                    "idfa": "",
+                    "soc": "XNvISMCo5mIAAMa7gNQAAAAA"
+                },
+                "location_params": null,
+                "locationid": "58278",
+                "results": [
+                    {
+                        "ad": "<!DOCTYPE html>\n  <head>\n    <meta charset=\"UTF-8\">\n    <script src=\"https://i.socdm.com/sdk/js/adg-script-base.js\" type=\"text/javascript\"></script>\n    <script type=\"text/javascript\">\n      adsettings = {\n        locationid  : 58278,\n        rotation    : 0,\n        displaytype : 1,\n        sdktype     : \"0\",\n        scheduleid  : 512601\n      };\n    </script>\n    <style>\n      body {\n        margin:0;\n        padding:0;\n      }\n    </style>\n  </head>\n  <body>\n    <div id=\"medibasspContainer\">\n      <iframe src=\"https://s3-ap-northeast-1.amazonaws.com/sdk-temp/adg-sample-ad/300x250.html?prc=-Cuepak&rd=https%3A%2F%2Ftg.socdm.com%2Frd%2Fv1%2Fz%2FhKFj2gDLY2hzbT0xODYsYmQyZTlmY2QvNTgyNzgvU1NQTE9DLzUxMjYwMS83MjExNS43Njg1NS41MTI2MDEvMTA5MzkyNi82NDkxOS81ODI3ODpTU1BMT0M6Ki9jdD0xNTgyNzA4NzcyNzc3O3NyPWh0dHBzO2RzcGlkPTMwMTtwcj16RGFfYVY0O3ByYj15UTtwcm89eVE7cHJvYz1KUFk7Y3JkMnk9MTA5LjA2O2NyeTJkPTAuMDA5MTY5MjY0NjI0OTc3MDc2OTtpZHg9MDulc2VxaWTaACQyYTZlYTkwNy0xMzNhLTYwMmYtODlhYy01ODViNzcxMjg5YWWnc2VxdGltZa0xNTgyNzA4NzcyNzc3pHh1aWS4WE52SVNNQ281bUlBQU1hN2dOUUFBQUFB%2Fp%2Fctsv%3Dm-ad115%3Bseqid%3D2a6ea907-133a-602f-89ac-585b771289ae%3Bseqctx%3Dgat3by5hZy5mdHlwZaEx%3B%2Fg%2FU%3A%3Furl%3D\" style=\"border: 0px;\" width=\"300\" height=\"250\" frameborder=\"0\" scrolling=\"no\"></iframe>\n    </div>\n  </body>\n",
+                        "beacon": "<img src=\"https://tg.socdm.com/bc/v3?b=Y2hzbT0zNDAsOGY0YzQxMmJpZD01ODI3OCZwb3M9U1NQTE9DJmFkPTUxMjYwMS83MjExNS43Njg1NS41MTI2MDEvMTA5MzkyNi82NDkxOS81ODI3ODpTU1BMT0M6Ki9pZHg9MDtkc3BpZD0zMDE7cHI9ekRhX2FWNDtwcmI9eVE7cHJvPXlRO3Byb2M9SlBZO2NyZDJ5PTEwOS4wNjtjcnkyZD0wLjAwOTE2OTI2NDYyNDk3NzA3Njk7cHJ2PWlqekFWbVlvcG5iVFdQdHFobWRDdWVkVzQ3dDI1NTBLZmIxVmJiN0s7YWNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQW51bGwlN0Q7YXNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQTUyJTJDJTIybWFyZ2luJTIyJTNBZmFsc2UlN0Q7JmV4PTE1ODI3MDg3NzImY3Q9MTU4MjcwODc3Mjc3NyZzcj1odHRw&amp;xuid=XNvISMCo5mIAAMa7gNQAAAAA&amp;ctsv=m-ad115&amp;seqid=2a6ea907-133a-602f-89ac-585b771289ae&amp;seqtime=1582708772777&amp;seqctx=gat3by5hZy5mdHlwZaEx&amp;t=.gif\" width=\"1\" height=\"1\" style=\"display:none;border:none;padding:0;margin:0;width:1px;height:1px\"/>",
+                        "beaconurl": "https://tg.socdm.com/bc/v3?b=Y2hzbT0zNDAsOGY0YzQxMmJpZD01ODI3OCZwb3M9U1NQTE9DJmFkPTUxMjYwMS83MjExNS43Njg1NS41MTI2MDEvMTA5MzkyNi82NDkxOS81ODI3ODpTU1BMT0M6Ki9pZHg9MDtkc3BpZD0zMDE7cHI9ekRhX2FWNDtwcmI9eVE7cHJvPXlRO3Byb2M9SlBZO2NyZDJ5PTEwOS4wNjtjcnkyZD0wLjAwOTE2OTI2NDYyNDk3NzA3Njk7cHJ2PWlqekFWbVlvcG5iVFdQdHFobWRDdWVkVzQ3dDI1NTBLZmIxVmJiN0s7YWNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQW51bGwlN0Q7YXNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQTUyJTJDJTIybWFyZ2luJTIyJTNBZmFsc2UlN0Q7JmV4PTE1ODI3MDg3NzImY3Q9MTU4MjcwODc3Mjc3NyZzcj1odHRw&xuid=XNvISMCo5mIAAMa7gNQAAAAA&ctsv=m-ad115&seqid=2a6ea907-133a-602f-89ac-585b771289ae&seqtime=1582708772777&seqctx=gat3by5hZy5mdHlwZaEx&t=.gif",
+                        "cpm": 46.6,
+                        "creativeid": "DummyDsp_SdkTeam_supership.jp",
+                        "h": 250,
+                        "landing_url": "",
+                        "scheduleid": "512601",
+                        "trackers": {
+                            "imp": [
+                                "https://tg.socdm.com/bc/v3?b=Y2hzbT0zNDAsOGY0YzQxMmJpZD01ODI3OCZwb3M9U1NQTE9DJmFkPTUxMjYwMS83MjExNS43Njg1NS41MTI2MDEvMTA5MzkyNi82NDkxOS81ODI3ODpTU1BMT0M6Ki9pZHg9MDtkc3BpZD0zMDE7cHI9ekRhX2FWNDtwcmI9eVE7cHJvPXlRO3Byb2M9SlBZO2NyZDJ5PTEwOS4wNjtjcnkyZD0wLjAwOTE2OTI2NDYyNDk3NzA3Njk7cHJ2PWlqekFWbVlvcG5iVFdQdHFobWRDdWVkVzQ3dDI1NTBLZmIxVmJiN0s7YWNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQW51bGwlN0Q7YXNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQTUyJTJDJTIybWFyZ2luJTIyJTNBZmFsc2UlN0Q7JmV4PTE1ODI3MDg3NzImY3Q9MTU4MjcwODc3Mjc3NyZzcj1odHRw&xuid=XNvISMCo5mIAAMa7gNQAAAAA&ctsv=m-ad115&seqid=2a6ea907-133a-602f-89ac-585b771289ae&seqtime=1582708772777&seqctx=gat3by5hZy5mdHlwZaEx&t=.gif"
+                            ],
+                            "viewable_imp": [
+                                "https://tg.socdm.com/aux/inview?creative_id=1093926&ctsv=m-ad115&extra_field=idx%3D0%3Bdspid%3D301%3Bprb%3D0%3Bpro%3D0%3Bproc%3DJPY%3Bcrd2y%3D109.06%3Bcry2d%3D0.0091692646249770769%3Bsspm%3D0%3Bsom%3D0.2%3Borgm%3D0%3Btechm%3D0%3Bssp_margin%3D0%3Bso_margin%3D0.2%3Borg_margin%3D0%3Btech_margin%3D0%3Bbs%3Dversion_1%3Bacd%3D%257B%2522margin_id%2522%253Anull%257D%3Basd%3D%257B%2522margin_id%2522%253A52%252C%2522margin%2522%253Afalse%257D%3B&family_id=512601&id=58278&loglocation_id=64919&lookupname=58278%3ASSPLOC%3A*&pos=SSPLOC&schedule_id=72115.76855.512601&seqid=2a6ea907-133a-602f-89ac-585b771289ae&seqtime=1582708772777&xuid=XNvISMCo5mIAAMa7gNQAAAAA"
+                            ],
+                            "viewable_measured": [
+                                "https://tg.socdm.com/aux/measured?creative_id=1093926&ctsv=m-ad115&extra_field=idx%3D0%3Bdspid%3D301%3Bprb%3D0%3Bpro%3D0%3Bproc%3DJPY%3Bcrd2y%3D109.06%3Bcry2d%3D0.0091692646249770769%3Bsspm%3D0%3Bsom%3D0.2%3Borgm%3D0%3Btechm%3D0%3Bssp_margin%3D0%3Bso_margin%3D0.2%3Borg_margin%3D0%3Btech_margin%3D0%3Bbs%3Dversion_1%3Bacd%3D%257B%2522margin_id%2522%253Anull%257D%3Basd%3D%257B%2522margin_id%2522%253A52%252C%2522margin%2522%253Afalse%257D%3B&family_id=512601&id=58278&loglocation_id=64919&lookupname=58278%3ASSPLOC%3A*&pos=SSPLOC&schedule_id=72115.76855.512601&seqid=2a6ea907-133a-602f-89ac-585b771289ae&seqtime=1582708772777&xuid=XNvISMCo5mIAAMa7gNQAAAAA"
+                            ]
+                        },
+                        "ttl": 10,
+                        "w": 300,
+                        "weight": 1
+                    }
+                ],
+                "rotation": "0",
+                "scheduleid": "512601",
+                "sdktype": "0",
+                "trackers": {
+                    "imp": [
+                        "https://tg.socdm.com/bc/v3?b=Y2hzbT0zNDAsOGY0YzQxMmJpZD01ODI3OCZwb3M9U1NQTE9DJmFkPTUxMjYwMS83MjExNS43Njg1NS41MTI2MDEvMTA5MzkyNi82NDkxOS81ODI3ODpTU1BMT0M6Ki9pZHg9MDtkc3BpZD0zMDE7cHI9ekRhX2FWNDtwcmI9eVE7cHJvPXlRO3Byb2M9SlBZO2NyZDJ5PTEwOS4wNjtjcnkyZD0wLjAwOTE2OTI2NDYyNDk3NzA3Njk7cHJ2PWlqekFWbVlvcG5iVFdQdHFobWRDdWVkVzQ3dDI1NTBLZmIxVmJiN0s7YWNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQW51bGwlN0Q7YXNkPSU3QiUyMm1hcmdpbl9pZCUyMiUzQTUyJTJDJTIybWFyZ2luJTIyJTNBZmFsc2UlN0Q7JmV4PTE1ODI3MDg3NzImY3Q9MTU4MjcwODc3Mjc3NyZzcj1odHRw&xuid=XNvISMCo5mIAAMa7gNQAAAAA&ctsv=m-ad115&seqid=2a6ea907-133a-602f-89ac-585b771289ae&seqtime=1582708772777&seqctx=gat3by5hZy5mdHlwZaEx&t=.gif"
+                    ],
+                    "viewable_imp": [
+                        "https://tg.socdm.com/aux/inview?creative_id=1093926&ctsv=m-ad115&extra_field=idx%3D0%3Bdspid%3D301%3Bprb%3D0%3Bpro%3D0%3Bproc%3DJPY%3Bcrd2y%3D109.06%3Bcry2d%3D0.0091692646249770769%3Bsspm%3D0%3Bsom%3D0.2%3Borgm%3D0%3Btechm%3D0%3Bssp_margin%3D0%3Bso_margin%3D0.2%3Borg_margin%3D0%3Btech_margin%3D0%3Bbs%3Dversion_1%3Bacd%3D%257B%2522margin_id%2522%253Anull%257D%3Basd%3D%257B%2522margin_id%2522%253A52%252C%2522margin%2522%253Afalse%257D%3B&family_id=512601&id=58278&loglocation_id=64919&lookupname=58278%3ASSPLOC%3A*&pos=SSPLOC&schedule_id=72115.76855.512601&seqid=2a6ea907-133a-602f-89ac-585b771289ae&seqtime=1582708772777&xuid=XNvISMCo5mIAAMa7gNQAAAAA"
+                    ],
+                    "viewable_measured": [
+                        "https://tg.socdm.com/aux/measured?creative_id=1093926&ctsv=m-ad115&extra_field=idx%3D0%3Bdspid%3D301%3Bprb%3D0%3Bpro%3D0%3Bproc%3DJPY%3Bcrd2y%3D109.06%3Bcry2d%3D0.0091692646249770769%3Bsspm%3D0%3Bsom%3D0.2%3Borgm%3D0%3Btechm%3D0%3Bssp_margin%3D0%3Bso_margin%3D0.2%3Borg_margin%3D0%3Btech_margin%3D0%3Bbs%3Dversion_1%3Bacd%3D%257B%2522margin_id%2522%253Anull%257D%3Basd%3D%257B%2522margin_id%2522%253A52%252C%2522margin%2522%253Afalse%257D%3B&family_id=512601&id=58278&loglocation_id=64919&lookupname=58278%3ASSPLOC%3A*&pos=SSPLOC&schedule_id=72115.76855.512601&seqid=2a6ea907-133a-602f-89ac-585b771289ae&seqtime=1582708772777&xuid=XNvISMCo5mIAAMa7gNQAAAAA"
+                    ]
+                },
+                "ttl": 10,
+                "w": 300
