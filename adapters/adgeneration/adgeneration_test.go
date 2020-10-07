@@ -26,7 +26,7 @@ func TestgetRequestUri(t *testing.T) {
 		},
 		Device: &openrtb.Device{UA: "testUA", IP: "testIP"},
 		Site:   &openrtb.Site{Page: "https://supership.com"},
-		User:   &openrtb.User{BuyerUID: "buyerID"},
+		User:   &openrtb.User{BuyerUID: "buyerUID"},
 	}
 	successRequest := &openrtb.BidRequest{
 		ID: "test-success-bid-request",
@@ -35,7 +35,7 @@ func TestgetRequestUri(t *testing.T) {
 		},
 		Device: &openrtb.Device{UA: "testUA", IP: "testIP"},
 		Site:   &openrtb.Site{Page: "https://supership.com"},
-		User:   &openrtb.User{BuyerUID: "buyerID"},
+		User:   &openrtb.User{BuyerUID: "buyerUID"},
 	}
 
 	numRequests := len(failedRequest.Imp)
@@ -74,6 +74,7 @@ func TestgetRequestUri(t *testing.T) {
 			"adapterver": bidder.version,
 			"size":       getSizes(&successRequest.Imp[index]),
 			"tp":         successRequest.Site.Name,
+			"xuid":       successRequest.User.BuyerUID,
 		}
 		for key, expectedValue := range expectQueries {
 			actualValue := rawQuery.Get(key)
