@@ -4,6 +4,9 @@
         "site": {
             "page": "http://example.com/test.html"
         },
+        "user": {
+            "buyeruid": "buyerUID"
+        },
         "imp": [
             {
                 "id": "some-impression-id",
@@ -31,6 +34,9 @@
                 "site": {
                     "page": "http://example.com/test.html"
                 },
+                "user": {
+                    "buyeruid": "buyerUID"
+                },
                 "imp": [
                     {
                         "id": "some-impression-id",
@@ -52,7 +58,7 @@
                 "tmax": 500
             },
             "expectedRequest":{
-                "uri": "https://d.socdm.com/adsv/v1?adapterver=1.0.1&currency=JPY&hb=true&id=58278&posall=SSPLOC&sdkname=prebidserver&sdktype=0&size=300%C3%97250&t=json3&tp=http%3A%2F%2Fexample.com%2Ftest.html",
+                "uri": "https://d.socdm.com/adsv/v1?adapterver=1.0.1&currency=JPY&hb=true&id=58278&posall=SSPLOC&sdkname=prebidserver&sdktype=0&size=300%C3%97250&t=json3&tp=http%3A%2F%2Fexample.com%2Ftest.html&xuid=buyerUID",
                 "headers": {
                     "Accept": [
                         "application/json"

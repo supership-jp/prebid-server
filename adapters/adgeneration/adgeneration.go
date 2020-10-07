@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/golang/glog"
 	"github.com/mxmCherry/openrtb"
 	"github.com/prebid/prebid-server/adapters"
 	"github.com/prebid/prebid-server/errortypes"
@@ -56,6 +57,8 @@ func (adg *AdgenerationAdapter) MakeRequests(request *openrtb.BidRequest, reqInf
 	headers.Add("Accept", "application/json")
 
 	bidRequestArray := make([]*adapters.RequestData, 0, numRequests)
+
+	glog.Errorf("ADG User %#v", request.User)
 
 	for index := 0; index < numRequests; index++ {
 		bidRequestUri, err := adg.getRequestUri(request, index)
@@ -110,6 +113,9 @@ func (adg *AdgenerationAdapter) getRawQuery(id string, request *openrtb.BidReque
 	}
 	if request.Site != nil && request.Site.Page != "" {
 		v.Set("tp", request.Site.Page)
+	}
+	if request.User != nil && request.User.BuyerUID != "" {
+		v.Add("xuid", request.User.BuyerUID)
 	}
 	return &v
 }
