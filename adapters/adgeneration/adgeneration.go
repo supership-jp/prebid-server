@@ -111,6 +111,9 @@ func (adg *AdgenerationAdapter) getRawQuery(id string, request *openrtb.BidReque
 	if request.Site != nil && request.Site.Page != "" {
 		v.Set("tp", request.Site.Page)
 	}
+	if request.User != nil && request.User.BuyerUID != "" {
+		v.Add("xuid", request.User.BuyerUID)
+	}
 	return &v
 }
 

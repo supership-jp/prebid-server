@@ -4,6 +4,9 @@
         "site": {
             "page": "http://example.com/test.html"
         },
+        "user": {
+            "buyeruid": "buyerUID"
+        },
         "imp": [
             {
                 "id": "some-impression-id",
