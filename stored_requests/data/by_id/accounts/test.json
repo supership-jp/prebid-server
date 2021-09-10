@@ -1,6 +1,6 @@
 {
-    "id": "test",
-    "name": "test account",
+    "id": "adgeneration",
+    "name": "adgeneration",
     "disabled": true,
     "cache_ttl": {
         "banner": 600,

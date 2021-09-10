@@ -55,8 +55,16 @@ func (adg *AdgenerationAdapter) MakeRequests(request *openrtb.BidRequest, reqInf
 	headers := http.Header{}
 	headers.Add("Content-Type", "application/json;charset=utf-8")
 	headers.Add("Accept", "application/json")
-	if request.Device != nil && len(request.Device.UA) > 0 {
-		headers.Add("User-Agent", request.Device.UA)
+	if request.Device != nil {
+		if len(request.Device.UA) > 0 {
+			headers.Add("User-Agent", request.Device.UA)
+		}
+		if len(request.Device.UA) > 0 {
+			headers.Add("User-Agent", request.Device.UA)
+		}
+		if len(request.Device.IP) > 0 {
+			headers.Add("X-Forwarded-For", request.Device.IP)
+		}
 	}
 
 	bidRequestArray := make([]*adapters.RequestData, 0, numRequests)
@@ -115,6 +123,20 @@ func (adg *AdgenerationAdapter) getRawQuery(id string, request *openrtb.BidReque
 	if request.Site != nil && request.Site.Page != "" {
 		v.Set("tp", request.Site.Page)
 	}
+	if request.App != nil && request.App.Bundle != "" {
+		v.Set("appbundle", request.App.Bundle)
+	}
+	if request.App != nil && request.App.Name != "" {
+		v.Set("appname", request.App.Name)
+	}
+
+	if request.Device != nil && request.Device.OS == "ios" && request.Device.IFA != "" {
+		v.Set("idfa", request.Device.IFA)
+	}
+	if request.Device != nil && request.Device.OS == "android" && request.Device.IFA != "" {
+		v.Set("advertising_id", request.Device.IFA)
+	}
+
 	if request.Source != nil && request.Source.TID != "" {
 		v.Set("transactionid", request.Source.TID)
 	}
@@ -258,7 +280,6 @@ func removeWrapper(ad string) string {
 	str := strings.TrimSpace(strings.Replace(strings.Replace(ad[bodyIndex:lastBodyIndex], "<body>", "", 1), "</body>", "", 1))
 	return str
 }
-
 
 // Builder builds a new instance of the Adgeneration adapter for the given bidder with the given config.
 func Builder(bidderName openrtb_ext.BidderName, config config.Adapter) (adapters.Bidder, error) {
