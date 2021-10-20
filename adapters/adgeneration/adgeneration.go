@@ -59,9 +59,6 @@ func (adg *AdgenerationAdapter) MakeRequests(request *openrtb.BidRequest, reqInf
 		if len(request.Device.UA) > 0 {
 			headers.Add("User-Agent", request.Device.UA)
 		}
-		if len(request.Device.UA) > 0 {
-			headers.Add("User-Agent", request.Device.UA)
-		}
 		if len(request.Device.IP) > 0 {
 			headers.Add("X-Forwarded-For", request.Device.IP)
 		}
