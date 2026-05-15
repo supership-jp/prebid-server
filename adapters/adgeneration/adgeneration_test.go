@@ -9,6 +9,7 @@ import (
 
 	"github.com/prebid/openrtb/v20/openrtb2"
 	"github.com/prebid/prebid-server/v4/adapters"
+	"github.com/prebid/prebid-server/v4/adapters/adapterstest"
 	"github.com/prebid/prebid-server/v4/config"
 	"github.com/prebid/prebid-server/v4/openrtb_ext"
 	"github.com/stretchr/testify/assert"
@@ -26,11 +27,13 @@ func newTestAdapter(t *testing.T) *AdgenerationAdapter {
 	return bidder.(*AdgenerationAdapter)
 }
 
-// 注: adgenerationtest/ 配下の JSON golden file は GET 形式の旧仕様で作成されている。
-// Prebid.js パリティ移行 (POST + JSON Body) に伴い書き換えが必要。
-// 詳細: projects/prebid-server/research/parity-concerns.md §13
 func TestJsonSamples(t *testing.T) {
-	t.Skip("TODO: regenerate adgenerationtest/ JSON golden files for POST + JSON body format")
+	bidder, err := Builder(openrtb_ext.BidderAdgeneration, config.Adapter{Endpoint: testEndpoint},
+		config.Server{ExternalUrl: "http://hosturl.com", GvlID: 1, DataCenter: "2"})
+	if err != nil {
+		t.Fatalf("Builder returned unexpected error: %v", err)
+	}
+	adapterstest.RunJSONBidderTest(t, "adgenerationtest", bidder)
 }
 
 func TestBuildRequestPostsToAdgenPrebid(t *testing.T) {
