@@ -1,12 +1,12 @@
 package adgeneration
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/prebid/openrtb/v20/openrtb2"
@@ -15,7 +15,14 @@ import (
 	"github.com/prebid/prebid-server/v4/errortypes"
 	"github.com/prebid/prebid-server/v4/openrtb_ext"
 	"github.com/prebid/prebid-server/v4/util/jsonutil"
+	"github.com/prebid/prebid-server/v4/version"
 )
+
+// Prebid.js v1.6.6 (modules/adgenerationBidAdapter.js) とリクエスト/レスポンス
+// 仕様を揃えるため、エンドポイントは /adgen/prebid (POST + JSON Body)、
+// URLクエリは id / posall / sdktype のみとし、それ以外の情報は ortb body に
+// 載せて送信する。詳細な懸念点は
+// projects/prebid-server/research/parity-concerns.md を参照。
 
 type AdgenerationAdapter struct {
 	endpoint        string
@@ -23,33 +30,55 @@ type AdgenerationAdapter struct {
 	defaultCurrency string
 }
 
-// Server Responses
+// adgRequestBody は POST body の JSON 構造。Prebid.js の `data` オブジェクト
+// (currency / pbver / sdkname / adapterver / ortb / imark) と一致させる。
+type adgRequestBody struct {
+	Currency   string             `json:"currency"`
+	Pbver      string             `json:"pbver"`
+	Sdkname    string             `json:"sdkname"`
+	Adapterver string             `json:"adapterver"`
+	Ortb       openrtb2.BidRequest `json:"ortb"`
+	// imark は native でないとき (= banner) のみ 1 を送る。
+	// Prebid.js 側コメント「native以外にvideo等の対応が入った場合は要修正」を踏襲。
+	Imark int `json:"imark,omitempty"`
+}
+
+// adgServerResponse はバックエンド (d.socdm.com/adgen/prebid) の応答形式。
+// Prebid.js は body.results[0] から取り出すため、results 優先で読む。
 type adgServerResponse struct {
-	Locationid string        `json:"locationid"`
-	Dealid     string        `json:"dealid"`
-	Ad         string        `json:"ad"`
-	Beacon     string        `json:"beacon"`
-	Beaconurl  string        `json:"beaconurl"`
-	Cpm        float64       `jsons:"cpm"`
-	Creativeid string        `json:"creativeid"`
-	H          uint64        `json:"h"`
-	W          uint64        `json:"w"`
-	Ttl        uint64        `json:"ttl"`
-	Vastxml    string        `json:"vastxml,omitempty"`
-	LandingUrl string        `json:"landing_url"`
-	Scheduleid string        `json:"scheduleid"`
-	Results    []interface{} `json:"results"`
+	Locationid     string                 `json:"locationid"`
+	LocationParams *adgLocationParams     `json:"location_params,omitempty"`
+	Results        []adgResult            `json:"results"`
+}
+
+type adgLocationParams struct {
+	Option *adgLocationOption `json:"option,omitempty"`
+}
+
+type adgLocationOption struct {
+	AdType string `json:"ad_type,omitempty"`
+}
+
+type adgResult struct {
+	Ad         string          `json:"ad"`
+	Beacon     string          `json:"beacon"`
+	Beaconurl  string          `json:"beaconurl"`
+	Cpm        float64         `json:"cpm"`
+	Creativeid string          `json:"creativeid"`
+	Dealid     string          `json:"dealid"`
+	H          uint64          `json:"h"`
+	W          uint64          `json:"w"`
+	Ttl        uint64          `json:"ttl"`
+	Vastxml    string          `json:"vastxml,omitempty"`
+	LandingUrl string          `json:"landing_url"`
+	Scheduleid string          `json:"scheduleid"`
+	Adomain    []string        `json:"adomain,omitempty"`
+	Native     json.RawMessage `json:"native,omitempty"`
 }
 
 func (adg *AdgenerationAdapter) MakeRequests(request *openrtb2.BidRequest, reqInfo *adapters.ExtraRequestInfo) ([]*adapters.RequestData, []error) {
-	numRequests := len(request.Imp)
-	var errs []error
-
-	if numRequests == 0 {
-		errs = append(errs, &errortypes.BadInput{
-			Message: "No impression in the bid request",
-		})
-		return nil, errs
+	if len(request.Imp) == 0 {
+		return nil, []error{&errortypes.BadInput{Message: "No impression in the bid request"}}
 	}
 
 	headers := http.Header{}
@@ -64,86 +93,91 @@ func (adg *AdgenerationAdapter) MakeRequests(request *openrtb2.BidRequest, reqIn
 		}
 	}
 
-	bidRequestArray := make([]*adapters.RequestData, 0, numRequests)
+	bidRequestArray := make([]*adapters.RequestData, 0, len(request.Imp))
+	var errs []error
 
-	for index := 0; index < numRequests; index++ {
-		bidRequestUri, err := adg.getRequestUri(request, index)
+	// Prebid.js は imp ごとに 1 リクエスト発行する。Prebid Server も同様にする。
+	for index := range request.Imp {
+		req, err := adg.buildRequest(request, index, headers)
 		if err != nil {
 			errs = append(errs, err)
-			return nil, errs
+			continue
 		}
-		bidRequest := &adapters.RequestData{
-			Method:  "GET",
-			Uri:     bidRequestUri,
-			Body:    nil,
-			Headers: headers,
-			ImpIDs:  []string{request.Imp[index].ID},
-		}
-		bidRequestArray = append(bidRequestArray, bidRequest)
+		bidRequestArray = append(bidRequestArray, req)
 	}
 
 	return bidRequestArray, errs
 }
 
-func (adg *AdgenerationAdapter) getRequestUri(request *openrtb2.BidRequest, index int) (string, error) {
+func (adg *AdgenerationAdapter) buildRequest(request *openrtb2.BidRequest, index int, headers http.Header) (*adapters.RequestData, error) {
 	imp := request.Imp[index]
 	adgExt, err := unmarshalExtImpAdgeneration(&imp)
 	if err != nil {
-		return "", &errortypes.BadInput{
-			Message: err.Error(),
-		}
+		return nil, &errortypes.BadInput{Message: err.Error()}
 	}
-	uriObj, err := url.Parse(adg.endpoint)
+
+	uri, err := adg.buildUri(adgExt.Id)
 	if err != nil {
-		return "", &errortypes.BadInput{
-			Message: err.Error(),
-		}
+		return nil, &errortypes.BadInput{Message: err.Error()}
 	}
-	v := adg.getRawQuery(adgExt.Id, request, &imp)
-	uriObj.RawQuery = v.Encode()
-	return uriObj.String(), err
+
+	body, err := adg.buildBody(request, imp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &adapters.RequestData{
+		Method:  http.MethodPost,
+		Uri:     uri,
+		Body:    body,
+		Headers: headers,
+		ImpIDs:  []string{imp.ID},
+	}, nil
 }
 
-func (adg *AdgenerationAdapter) getRawQuery(id string, request *openrtb2.BidRequest, imp *openrtb2.Imp) *url.Values {
+func (adg *AdgenerationAdapter) buildUri(id string) (string, error) {
+	uriObj, err := url.Parse(adg.endpoint)
+	if err != nil {
+		return "", err
+	}
 	v := url.Values{}
-	v.Set("posall", "SSPLOC")
 	v.Set("id", id)
-	v.Set("hb", "true")
-	v.Set("t", "json3")
-	v.Set("currency", adg.getCurrency(request))
-	v.Set("sdkname", "prebidserver")
-	v.Set("adapterver", adg.version)
-	adSize := getSizes(imp)
-	if adSize != "" {
-		v.Set("sizes", adSize)
-	}
-	if request.Device != nil && request.Device.OS == "android" {
-		v.Set("sdktype", "1")
-	} else if request.Device != nil && request.Device.OS == "ios" {
-		v.Set("sdktype", "2")
-	} else {
-		v.Set("sdktype", "0")
-	}
-	if request.Site != nil && request.Site.Page != "" {
-		v.Set("tp", request.Site.Page)
-	}
-	if request.Source != nil && request.Source.TID != "" {
-		v.Set("transactionid", request.Source.TID)
-	}
-	if request.App != nil && request.App.Bundle != "" {
-		v.Set("appbundle", request.App.Bundle)
-	}
-	if request.App != nil && request.App.Name != "" {
-		v.Set("appname", request.App.Name)
-	}
-	if request.Device != nil && request.Device.OS == "ios" && request.Device.IFA != "" {
-		v.Set("idfa", request.Device.IFA)
-	}
-	if request.Device != nil && request.Device.OS == "android" && request.Device.IFA != "" {
-		v.Set("advertising_id", request.Device.IFA)
+	v.Set("posall", "SSPLOC")
+	// 懸念: Prebid.js は常に sdktype=0 (web 想定) を送る。Prebid Server は app
+	// 経由でも呼ばれるため、本来は OS で 0/1/2 を出し分けたい (旧 upstream 実装)。
+	// パリティ優先で 0 固定にしている。app 配信の挙動はバックエンド側で
+	// ortb.app の有無を見て判定する想定。詳細は parity-concerns.md §4。
+	v.Set("sdktype", "0")
+	uriObj.RawQuery = v.Encode()
+	return uriObj.String(), nil
+}
+
+func (adg *AdgenerationAdapter) buildBody(request *openrtb2.BidRequest, imp openrtb2.Imp) ([]byte, error) {
+	// ortb には単一 imp 構成の BidRequest を入れる (Prebid.js の挙動と同じ)。
+	// 元 request の他フィールド (site/app/device/user/source/regs/ext 等) は
+	// そのまま温存し、FPD/UserID/schain/SUA 等が自然にバックエンドへ届くようにする。
+	ortbReq := *request
+	ortbReq.Imp = []openrtb2.Imp{imp}
+
+	pbver := version.Ver
+	if pbver == "" {
+		pbver = version.VerUnknown
 	}
 
-	return &v
+	body := adgRequestBody{
+		Currency:   adg.getCurrency(request),
+		Pbver:      pbver,
+		Sdkname:    "prebidserver",
+		Adapterver: adg.version,
+		Ortb:       ortbReq,
+	}
+	// imark: native でない (= banner 想定) のとき 1。
+	// 懸念: Prebid.js 由来のフラグ。バックエンドでの正確な意味は未確認 (parity-concerns.md §8)。
+	if imp.Native == nil {
+		body.Imark = 1
+	}
+
+	return json.Marshal(body)
 }
 
 func unmarshalExtImpAdgeneration(imp *openrtb2.Imp) (*openrtb_ext.ExtImpAdgeneration, error) {
@@ -161,31 +195,16 @@ func unmarshalExtImpAdgeneration(imp *openrtb2.Imp) (*openrtb_ext.ExtImpAdgenera
 	return &adgExt, nil
 }
 
-func getSizes(imp *openrtb2.Imp) string {
-	if imp.Banner == nil || len(imp.Banner.Format) == 0 {
-		return ""
-	}
-	var sizeStr string
-	for _, v := range imp.Banner.Format {
-		sizeStr += strconv.FormatInt(v.W, 10) + "x" + strconv.FormatInt(v.H, 10) + ","
-	}
-	if len(sizeStr) > 0 && strings.LastIndex(sizeStr, ",") == len(sizeStr)-1 {
-		sizeStr = sizeStr[:len(sizeStr)-1]
-	}
-	return sizeStr
-}
-
 func (adg *AdgenerationAdapter) getCurrency(request *openrtb2.BidRequest) string {
 	if len(request.Cur) <= 0 {
 		return adg.defaultCurrency
-	} else {
-		for _, c := range request.Cur {
-			if adg.defaultCurrency == c {
-				return c
-			}
-		}
-		return request.Cur[0]
 	}
+	for _, c := range request.Cur {
+		if adg.defaultCurrency == c {
+			return c
+		}
+	}
+	return request.Cur[0]
 }
 
 func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, externalRequest *adapters.RequestData, response *adapters.ResponseData) (*adapters.BidderResponse, []error) {
@@ -202,70 +221,145 @@ func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, e
 			Message: fmt.Sprintf("Unexpected status code: %d. Run with request.debug = 1 for more info", response.StatusCode),
 		}}
 	}
+
 	var bidResp adgServerResponse
-	err := jsonutil.Unmarshal(response.Body, &bidResp)
-	if err != nil {
+	if err := jsonutil.Unmarshal(response.Body, &bidResp); err != nil {
 		return nil, []error{err}
 	}
-	if len(bidResp.Results) <= 0 {
+	if len(bidResp.Results) == 0 {
 		return nil, nil
 	}
 
-	bidResponse := adapters.NewBidderResponseWithBidsCapacity(1)
-	var impId string
-	var bitType openrtb_ext.BidType
-	var adm string
-	for _, v := range internalRequest.Imp {
-		adgExt, err := unmarshalExtImpAdgeneration(&v)
+	// Prebid.js と同じく results[0] のみを採用 (1 imp / 1 リクエストのため)。
+	adResult := bidResp.Results[0]
+
+	// 対応する imp を locationid で逆引き。
+	var matchedImp *openrtb2.Imp
+	for i := range internalRequest.Imp {
+		adgExt, err := unmarshalExtImpAdgeneration(&internalRequest.Imp[i])
 		if err != nil {
-			return nil, []error{&errortypes.BadServerResponse{
-				Message: err.Error(),
-			},
-			}
+			return nil, []error{&errortypes.BadServerResponse{Message: err.Error()}}
 		}
 		if adgExt.Id == bidResp.Locationid {
-			impId = v.ID
-			bitType = openrtb_ext.BidTypeBanner
-			adm = createAd(&bidResp, impId)
-			bid := openrtb2.Bid{
-				ID:     bidResp.Locationid,
-				ImpID:  impId,
-				AdM:    adm,
-				Price:  bidResp.Cpm,
-				W:      int64(bidResp.W),
-				H:      int64(bidResp.H),
-				CrID:   bidResp.Creativeid,
-				DealID: bidResp.Dealid,
-			}
-
-			bidResponse.Bids = append(bidResponse.Bids, &adapters.TypedBid{
-				Bid:     &bid,
-				BidType: bitType,
-			})
-			bidResponse.Currency = adg.getCurrency(internalRequest)
-			return bidResponse, nil
+			matchedImp = &internalRequest.Imp[i]
+			break
 		}
 	}
-	return nil, nil
+	if matchedImp == nil {
+		return nil, nil
+	}
+
+	bidType, adm, err := buildAdMarkup(&adResult, bidResp.LocationParams, matchedImp)
+	if err != nil {
+		return nil, []error{err}
+	}
+
+	bid := openrtb2.Bid{
+		ID:    bidResp.Locationid,
+		ImpID: matchedImp.ID,
+		AdM:   adm,
+		Price: adResult.Cpm,
+		W:     int64(adResult.W),
+		H:     int64(adResult.H),
+		CrID:  adResult.Creativeid,
+		DealID: adResult.Dealid,
+	}
+	if len(adResult.Adomain) > 0 {
+		bid.ADomain = adResult.Adomain
+	}
+
+	bidResponse := adapters.NewBidderResponseWithBidsCapacity(1)
+	bidResponse.Currency = adg.getCurrency(internalRequest)
+	bidResponse.Bids = append(bidResponse.Bids, &adapters.TypedBid{
+		Bid:     &bid,
+		BidType: bidType,
+	})
+	return bidResponse, nil
 }
 
-func createAd(body *adgServerResponse, impId string) string {
-	ad := body.Ad
-	if body.Vastxml != "" {
-		ad = "<body><div id=\"apvad-" + impId + "\"></div><script type=\"text/javascript\" id=\"apv\" src=\"https://cdn.apvdr.com/js/VideoAd.min.js\"></script>" + insertVASTMethod(impId, body.Vastxml) + "</body>"
+// buildAdMarkup は results[0] から AdM を構築する。Native レスポンスがあれば
+// それを優先し、無ければ banner (vastxml があれば動画タグ差し込み) として返す。
+func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *openrtb2.Imp) (openrtb_ext.BidType, string, error) {
+	// Native: 懸念 — バックエンドが返す native オブジェクトが OpenRTB native
+	// response ({"native": {...assets, link, imptrackers...}}) と互換である前提。
+	// Prebid.js 実装からは asset id (1=title, 2=image, 3=icon, 4=sponsoredBy,
+	// 5=body, 6=cta, 502=privacyLink) は OpenRTB 互換と見られる。
+	// beaconurl は impressionTrackers に追加が必要だが、現状はパススルーとして
+	// バックエンドが OpenRTB に整合した形で返すことを期待する (parity-concerns.md §7)。
+	if len(adResult.Native) > 0 && imp.Native != nil {
+		// AdM は OpenRTB native admarkup の JSON 文字列。
+		// バックエンドが {"native": {...}} 形式で返す場合と {assets:...} のみで
+		// 返す場合があり得るため、両対応で薄くラップする。
+		admBytes := wrapNativeAdm(adResult.Native)
+		return openrtb_ext.BidTypeNative, string(admBytes), nil
 	}
-	ad = appendChildToBody(ad, body.Beacon)
-	unwrappedAd := removeWrapper(ad)
-	if unwrappedAd != "" {
-		return unwrappedAd
+
+	// Banner / Video-in-Banner
+	ad := adResult.Ad
+	if adResult.Vastxml != "" {
+		// Prebid.js は location_params.option.ad_type === "upper_billboard" のとき
+		// ADGBrowserM タグで差し込む。それ以外は APV タグ。
+		if isUpperBillboard(locationParams) {
+			ad = wrapWithADGBrowserM(adResult.Vastxml)
+		} else {
+			ad = wrapWithAPV(imp.ID, adResult.Vastxml)
+		}
 	}
-	return ad
+	ad = appendChildToBody(ad, adResult.Beacon)
+	if unwrapped := removeWrapper(ad); unwrapped != "" {
+		ad = unwrapped
+	}
+	return openrtb_ext.BidTypeBanner, ad, nil
 }
 
-func insertVASTMethod(bidId string, vastxml string) string {
+// wrapNativeAdm は results[0].native の生 JSON を AdM 用にラップする。
+// バックエンドが既に {"native":{...}} 形式で返している場合はそのまま、
+// {"assets":...} 直下なら {"native":...} で包む。
+func wrapNativeAdm(raw json.RawMessage) []byte {
+	trimmed := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(trimmed, "{") {
+		// すでに { から始まる場合の判定: native キーを含むか粗くチェック。
+		// 厳密にやるなら一度 unmarshal するが、性能優先でプレフィックスのみ確認。
+		if strings.Contains(trimmed[:min(64, len(trimmed))], "\"native\"") {
+			return []byte(trimmed)
+		}
+	}
+	return []byte(`{"native":` + trimmed + `}`)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func isUpperBillboard(p *adgLocationParams) bool {
+	if p == nil || p.Option == nil {
+		return false
+	}
+	return p.Option.AdType == "upper_billboard"
+}
+
+func wrapWithAPV(impID, vastxml string) string {
 	rep := regexp.MustCompile(`/\r?\n/g`)
-	var replacedVastxml = rep.ReplaceAllString(vastxml, "")
-	return "<script type=\"text/javascript\"> (function(){ new APV.VideoAd({s:\"" + bidId + "\"}).load('" + replacedVastxml + "'); })(); </script>"
+	replaced := rep.ReplaceAllString(vastxml, "")
+	return "<body><div id=\"apvad-" + impID + "\"></div>" +
+		"<script type=\"text/javascript\" id=\"apv\" src=\"https://cdn.apvdr.com/js/VideoAd.min.js\"></script>" +
+		"<script type=\"text/javascript\"> (function(){ new APV.VideoAd({s:\"" + impID + "\"}).load('" + replaced + "'); })(); </script>" +
+		"</body>"
+}
+
+func wrapWithADGBrowserM(vastxml string) string {
+	// 懸念: Prebid.js は params.marginTop を使うが、Prebid Server には imp.ext.params
+	// の概念がそのままは無いため、現状は marginTop=0 固定。必要なら ExtImpAdgeneration
+	// に MarginTop を追加する (parity-concerns.md §10)。
+	rep := regexp.MustCompile(`/\r?\n/g`)
+	replaced := rep.ReplaceAllString(vastxml, "")
+	return "<body>" +
+		"<script type=\"text/javascript\" src=\"https://i.socdm.com/sdk/js/adg-browser-m.js\"></script>" +
+		"<script type=\"text/javascript\">window.ADGBrowserM.init({vastXml: '" + replaced + "', marginTop: '0'});</script>" +
+		"</body>"
 }
 
 func appendChildToBody(ad string, data string) string {
@@ -279,7 +373,6 @@ func removeWrapper(ad string) string {
 	if bodyIndex == -1 || lastBodyIndex == -1 {
 		return ""
 	}
-
 	str := strings.TrimSpace(strings.Replace(strings.Replace(ad[bodyIndex:lastBodyIndex], "<body>", "", 1), "</body>", "", 1))
 	return str
 }

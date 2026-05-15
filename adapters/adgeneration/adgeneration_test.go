@@ -2,6 +2,9 @@ package adgeneration
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/prebid/openrtb/v20/openrtb2"
@@ -12,262 +15,245 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestJsonSamples(t *testing.T) {
-	bidder, buildErr := Builder(openrtb_ext.BidderAdgeneration, config.Adapter{
-		Endpoint: "https://d.socdm.com/adsv/v1"}, config.Server{ExternalUrl: "http://hosturl.com", GvlID: 1, DataCenter: "2"})
+const testEndpoint = "https://d.socdm.com/adgen/prebid"
 
-	if buildErr != nil {
-		t.Fatalf("Builder returned unexpected error %v", buildErr)
+func newTestAdapter(t *testing.T) *AdgenerationAdapter {
+	t.Helper()
+	bidder, err := Builder(openrtb_ext.BidderAdgeneration, config.Adapter{Endpoint: testEndpoint},
+		config.Server{ExternalUrl: "http://hosturl.com", GvlID: 1, DataCenter: "2"})
+	if err != nil {
+		t.Fatalf("Builder returned unexpected error: %v", err)
 	}
+	return bidder.(*AdgenerationAdapter)
+}
 
+func TestJsonSamples(t *testing.T) {
+	bidder, err := Builder(openrtb_ext.BidderAdgeneration, config.Adapter{Endpoint: testEndpoint},
+		config.Server{ExternalUrl: "http://hosturl.com", GvlID: 1, DataCenter: "2"})
+	if err != nil {
+		t.Fatalf("Builder returned unexpected error: %v", err)
+	}
 	adapterstest.RunJSONBidderTest(t, "adgenerationtest", bidder)
 }
 
-func TestGetRequestUri(t *testing.T) {
-	bidder, buildErr := Builder(openrtb_ext.BidderAdgeneration, config.Adapter{
-		Endpoint: "https://d.socdm.com/adsv/v1"}, config.Server{ExternalUrl: "http://hosturl.com", GvlID: 1, DataCenter: "2"})
-
-	if buildErr != nil {
-		t.Fatalf("Builder returned unexpected error %v", buildErr)
-	}
-
-	bidderAdgeneration, _ := bidder.(*AdgenerationAdapter)
-
-	// Test items
-	failedRequest := &openrtb2.BidRequest{
-		ID: "test-failed-bid-request",
+func TestBuildRequestPostsToAdgenPrebid(t *testing.T) {
+	adg := newTestAdapter(t)
+	req := &openrtb2.BidRequest{
+		ID: "test",
 		Imp: []openrtb2.Imp{
-			{ID: "extImpBidder-failed-test", Banner: &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}}}, Ext: json.RawMessage(`{{ "id": "58278" }}`)},
-			{ID: "extImpBidder-failed-test", Banner: &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}}}, Ext: json.RawMessage(`{"_bidder": { "id": "58278" }}`)},
-			{ID: "extImpAdgeneration-failed-test", Banner: &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}}}, Ext: json.RawMessage(`{"bidder": { "_id": "58278" }}`)},
+			{
+				ID:     "imp-1",
+				Banner: &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}}},
+				Ext:    json.RawMessage(`{"bidder":{"id":"58278"}}`),
+			},
 		},
-		Source: &openrtb2.Source{TID: "SourceTID"},
-		Device: &openrtb2.Device{UA: "testUA", IP: "testIP"},
-		Site:   &openrtb2.Site{Page: "https://supership.com"},
-		User:   &openrtb2.User{BuyerUID: "buyerID"},
-	}
-	successRequest := &openrtb2.BidRequest{
-		ID: "test-success-bid-request",
-		Imp: []openrtb2.Imp{
-			{ID: "bidRequest-success-test", Banner: &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}}}, Ext: json.RawMessage(`{"bidder": { "id": "58278" }}`)},
-		},
-		Source: &openrtb2.Source{TID: "SourceTID"},
-		Device: &openrtb2.Device{UA: "testUA", IP: "testIP"},
+		Source: &openrtb2.Source{TID: "src-tid"},
+		Device: &openrtb2.Device{UA: "testUA", IP: "1.2.3.4"},
 		Site:   &openrtb2.Site{Page: "https://supership.com"},
 		User:   &openrtb2.User{BuyerUID: "buyerID"},
 	}
 
-	numRequests := len(failedRequest.Imp)
-	for index := 0; index < numRequests; index++ {
-		httpRequests, err := bidderAdgeneration.getRequestUri(failedRequest, index)
-		if err == nil {
-			t.Errorf("getRequestUri: %v did not throw an error", failedRequest.Imp[index])
-		}
-		if httpRequests != "" {
-			t.Errorf("getRequestUri: %v did return Request: %s", failedRequest.Imp[index], httpRequests)
-		}
-	}
-	numRequests = len(successRequest.Imp)
-	for index := 0; index < numRequests; index++ {
-		// getRawQuery Test.
-		adgExt, err := unmarshalExtImpAdgeneration(&successRequest.Imp[index])
-		if err != nil {
-			t.Errorf("unmarshalExtImpAdgeneration: %v did throw an error: %v", successRequest.Imp[index], err)
-		}
-		rawQuery := bidderAdgeneration.getRawQuery(adgExt.Id, successRequest, &successRequest.Imp[index])
-		expectQueries := map[string]string{
-			"posall":        "SSPLOC",
-			"id":            adgExt.Id,
-			"sdktype":       "0",
-			"hb":            "true",
-			"currency":      bidderAdgeneration.getCurrency(successRequest),
-			"sdkname":       "prebidserver",
-			"adapterver":    bidderAdgeneration.version,
-			"sizes":         getSizes(&successRequest.Imp[index]),
-			"tp":            successRequest.Site.Page,
-			"transactionid": successRequest.Source.TID,
-		}
-		for key, expectedValue := range expectQueries {
-			actualValue := rawQuery.Get(key)
-			if actualValue != expectedValue {
-				t.Errorf("getRawQuery: %s value does not match expected %s, actual %s", key, expectedValue, actualValue)
-			}
-		}
+	requests, errs := adg.MakeRequests(req, &adapters.ExtraRequestInfo{})
+	assert.Empty(t, errs)
+	assert.Len(t, requests, 1)
 
-		// RequestUri Test.
-		actualUri, err := bidderAdgeneration.getRequestUri(successRequest, index)
-		if err != nil {
-			t.Errorf("getRequestUri: %v did throw an error: %v", successRequest.Imp[index], err)
-		}
-		expectedUri := "https://d.socdm.com/adsv/v1?adapterver=" + bidderAdgeneration.version + "&currency=JPY&hb=true&id=58278&posall=SSPLOC&sdkname=prebidserver&sdktype=0&sizes=300x250&t=json3&tp=https%3A%2F%2Fsupership.com&transactionid=SourceTID"
-		if actualUri != expectedUri {
-			t.Errorf("getRequestUri: does not match expected %s, actual %s", expectedUri, actualUri)
-		}
+	r := requests[0]
+	assert.Equal(t, http.MethodPost, r.Method)
+	assert.Equal(t, []string{"imp-1"}, r.ImpIDs)
+	assert.Equal(t, "testUA", r.Headers.Get("User-Agent"))
+	assert.Equal(t, "1.2.3.4", r.Headers.Get("X-Forwarded-For"))
+
+	parsed, err := url.Parse(r.Uri)
+	assert.NoError(t, err)
+	assert.Equal(t, "d.socdm.com", parsed.Host)
+	assert.Equal(t, "/adgen/prebid", parsed.Path)
+	q := parsed.Query()
+	assert.Equal(t, "58278", q.Get("id"))
+	assert.Equal(t, "SSPLOC", q.Get("posall"))
+	assert.Equal(t, "0", q.Get("sdktype"))
+	// パリティ確認: 旧 upstream で送っていた以下のクエリを送らない。
+	for _, key := range []string{"hb", "t", "currency", "sdkname", "adapterver", "sizes", "tp", "transactionid", "appbundle", "appname", "idfa", "advertising_id"} {
+		assert.False(t, q.Has(key), "query %q should not be set", key)
 	}
+
+	var body adgRequestBody
+	assert.NoError(t, json.Unmarshal(r.Body, &body))
+	assert.Equal(t, "JPY", body.Currency)
+	assert.Equal(t, "prebidserver", body.Sdkname)
+	assert.Equal(t, "1.0.3", body.Adapterver)
+	assert.Equal(t, 1, body.Imark, "banner request should set imark=1")
+	assert.NotEmpty(t, body.Pbver)
+	assert.Len(t, body.Ortb.Imp, 1)
+	assert.Equal(t, "imp-1", body.Ortb.Imp[0].ID)
+	assert.Equal(t, "https://supership.com", body.Ortb.Site.Page)
+	assert.Equal(t, "src-tid", body.Ortb.Source.TID)
 }
 
-func TestGetSizes(t *testing.T) {
-	// Test items
-	var request *openrtb2.Imp
-	var size string
-	multiFormatBanner := &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}, {W: 320, H: 50}}}
-	noFormatBanner := &openrtb2.Banner{Format: []openrtb2.Format{}}
-	nativeFormat := &openrtb2.Native{}
+func TestBuildRequestForNativeOmitsImark(t *testing.T) {
+	adg := newTestAdapter(t)
+	req := &openrtb2.BidRequest{
+		ID: "test",
+		Imp: []openrtb2.Imp{
+			{
+				ID:     "imp-native",
+				Native: &openrtb2.Native{Request: `{}`},
+				Ext:    json.RawMessage(`{"bidder":{"id":"58278"}}`),
+			},
+		},
+	}
+	requests, errs := adg.MakeRequests(req, &adapters.ExtraRequestInfo{})
+	assert.Empty(t, errs)
+	assert.Len(t, requests, 1)
 
-	request = &openrtb2.Imp{Banner: multiFormatBanner}
-	size = getSizes(request)
-	if size != "300x250,320x50" {
-		t.Errorf("%v does not match size.", multiFormatBanner)
+	var body adgRequestBody
+	assert.NoError(t, json.Unmarshal(requests[0].Body, &body))
+	assert.Equal(t, 0, body.Imark, "native request must not set imark")
+}
+
+func TestBuildRequestRejectsBadExt(t *testing.T) {
+	adg := newTestAdapter(t)
+	req := &openrtb2.BidRequest{
+		ID: "test",
+		Imp: []openrtb2.Imp{
+			{ID: "imp-bad", Banner: &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}}}, Ext: json.RawMessage(`{"bidder":{"_id":"58278"}}`)},
+			{ID: "imp-ok", Banner: &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}}}, Ext: json.RawMessage(`{"bidder":{"id":"58278"}}`)},
+		},
 	}
-	request = &openrtb2.Imp{Banner: noFormatBanner}
-	size = getSizes(request)
-	if size != "" {
-		t.Errorf("%v does not match size.", noFormatBanner)
-	}
-	request = &openrtb2.Imp{Native: nativeFormat}
-	size = getSizes(request)
-	if size != "" {
-		t.Errorf("%v does not match size.", nativeFormat)
-	}
+	requests, errs := adg.MakeRequests(req, &adapters.ExtraRequestInfo{})
+	assert.Len(t, errs, 1)
+	assert.Len(t, requests, 1, "valid imp should still produce a request")
 }
 
 func TestGetCurrency(t *testing.T) {
-	bidder, buildErr := Builder(openrtb_ext.BidderAdgeneration, config.Adapter{
-		Endpoint: "https://d.socdm.com/adsv/v1"}, config.Server{ExternalUrl: "http://hosturl.com", GvlID: 1, DataCenter: "2"})
-
-	if buildErr != nil {
-		t.Fatalf("Builder returned unexpected error %v", buildErr)
+	adg := newTestAdapter(t)
+	cases := []struct {
+		name string
+		cur  []string
+		want string
+	}{
+		{"default when empty", nil, "JPY"},
+		{"prefers JPY when supported", []string{"USD", "JPY"}, "JPY"},
+		{"falls back to first when JPY missing", []string{"USD", "EUR"}, "USD"},
 	}
-
-	bidderAdgeneration, _ := bidder.(*AdgenerationAdapter)
-
-	// Test items
-	var request *openrtb2.BidRequest
-	var currency string
-	innerDefaultCur := []string{"USD", "JPY"}
-	usdCur := []string{"USD", "EUR"}
-
-	request = &openrtb2.BidRequest{Cur: innerDefaultCur}
-	currency = bidderAdgeneration.getCurrency(request)
-	if currency != "JPY" {
-		t.Errorf("%v does not match currency.", innerDefaultCur)
-	}
-	request = &openrtb2.BidRequest{Cur: usdCur}
-	currency = bidderAdgeneration.getCurrency(request)
-	if currency != "USD" {
-		t.Errorf("%v does not match currency.", usdCur)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := adg.getCurrency(&openrtb2.BidRequest{Cur: c.cur})
+			assert.Equal(t, c.want, got)
+		})
 	}
 }
 
-func TestCreateAd(t *testing.T) {
-	// Test items
-	adgBannerImpId := "test-banner-imp"
-	adgBannerResponse := adgServerResponse{
-		Ad:         "<!DOCTYPE html>\n<head>\n<meta charset=\"UTF-8\">\n<script src=\"test.com\"></script>\n<body>\n<div id=\"medibasspContainer\">\n<iframe src=\"https://dummy-iframe.com></iframe>\n</div>\n</body>\n",
-		Beacon:     "<img src=\"https://dummy-beacon.com\">",
-		Beaconurl:  "https://dummy-beacon.com",
-		Cpm:        50,
-		Creativeid: "DummyDsp_SdkTeam_supership.jp",
-		H:          300,
-		W:          250,
-		Ttl:        10,
-		LandingUrl: "",
-		Scheduleid: "111111",
+func TestBuildAdMarkupBanner(t *testing.T) {
+	adResult := &adgResult{
+		Ad:        "<!DOCTYPE html><body><div id=\"x\"></div></body>",
+		Beacon:    "<img src=\"https://b.example/\">",
+		Beaconurl: "https://b.example/",
+		Cpm:       50,
 	}
-	matchBannerTag := "<div id=\"medibasspContainer\">\n<iframe src=\"https://dummy-iframe.com></iframe>\n</div>\n<img src=\"https://dummy-beacon.com\">"
+	imp := &openrtb2.Imp{ID: "imp-1", Banner: &openrtb2.Banner{}}
 
-	adgVastImpId := "test-vast-imp"
-	adgVastResponse := adgServerResponse{
-		Ad:         "<!DOCTYPE html>\n<head>\n<meta charset=\"UTF-8\">\n<script src=\"test.com\"></script>\n<body>\n<div id=\"medibasspContainer\">\n<iframe src=\"https://dummy-iframe.com></iframe>\n</div>\n</body>\n",
-		Beacon:     "<img src=\"https://dummy-beacon.com\">",
-		Beaconurl:  "https://dummy-beacon.com",
-		Cpm:        50,
-		Creativeid: "DummyDsp_SdkTeam_supership.jp",
-		H:          300,
-		W:          250,
-		Ttl:        10,
-		LandingUrl: "",
-		Vastxml:    "<?xml version=\"1.0\"><VAST version=\"3.0\"</VAST>",
-		Scheduleid: "111111",
-	}
-	matchVastTag := "<div id=\"apvad-test-vast-imp\"></div><script type=\"text/javascript\" id=\"apv\" src=\"https://cdn.apvdr.com/js/VideoAd.min.js\"></script><script type=\"text/javascript\"> (function(){ new APV.VideoAd({s:\"test-vast-imp\"}).load('<?xml version=\"1.0\"><VAST version=\"3.0\"</VAST>'); })(); </script><img src=\"https://dummy-beacon.com\">"
-
-	bannerAd := createAd(&adgBannerResponse, adgBannerImpId)
-	if bannerAd != matchBannerTag {
-		t.Errorf("%v does not match createAd.", adgBannerResponse)
-	}
-	vastAd := createAd(&adgVastResponse, adgVastImpId)
-	if vastAd != matchVastTag {
-		t.Errorf("%v does not match createAd.", adgVastResponse)
-	}
+	bidType, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	assert.Equal(t, openrtb_ext.BidTypeBanner, bidType)
+	assert.Equal(t, "<div id=\"x\"></div><img src=\"https://b.example/\">", adm)
 }
 
-func TestMakeBids(t *testing.T) {
-	bidder, buildErr := Builder(openrtb_ext.BidderAdgeneration, config.Adapter{
-		Endpoint: "https://d.socdm.com/adsv/v1"}, config.Server{ExternalUrl: "http://hosturl.com", GvlID: 1, DataCenter: "2"})
-
-	if buildErr != nil {
-		t.Fatalf("Builder returned unexpected error %v", buildErr)
+func TestBuildAdMarkupVastUsesAPV(t *testing.T) {
+	adResult := &adgResult{
+		Ad:      "<!DOCTYPE html><body></body>",
+		Beacon:  "<img src=\"https://b.example/\">",
+		Vastxml: "<VAST/>",
 	}
+	imp := &openrtb2.Imp{ID: "imp-vast", Banner: &openrtb2.Banner{}}
+	bidType, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	assert.Equal(t, openrtb_ext.BidTypeBanner, bidType)
+	assert.Contains(t, adm, "apvad-imp-vast")
+	assert.Contains(t, adm, "cdn.apvdr.com/js/VideoAd.min.js")
+}
 
-	bidderAdgeneration, _ := bidder.(*AdgenerationAdapter)
+func TestBuildAdMarkupVastUsesADGBrowserMOnUpperBillboard(t *testing.T) {
+	adResult := &adgResult{
+		Ad:      "<!DOCTYPE html><body></body>",
+		Beacon:  "<img src=\"https://b.example/\">",
+		Vastxml: "<VAST/>",
+	}
+	loc := &adgLocationParams{Option: &adgLocationOption{AdType: "upper_billboard"}}
+	imp := &openrtb2.Imp{ID: "imp-ub", Banner: &openrtb2.Banner{}}
+	bidType, adm, err := buildAdMarkup(adResult, loc, imp)
+	assert.NoError(t, err)
+	assert.Equal(t, openrtb_ext.BidTypeBanner, bidType)
+	assert.Contains(t, adm, "adg-browser-m.js")
+	assert.NotContains(t, adm, "apvad-")
+}
+
+func TestBuildAdMarkupNative(t *testing.T) {
+	rawNative := json.RawMessage(`{"assets":[{"id":1,"title":{"text":"hello"}}],"link":{"url":"https://l.example/"}}`)
+	adResult := &adgResult{Native: rawNative}
+	imp := &openrtb2.Imp{ID: "imp-native", Native: &openrtb2.Native{Request: `{}`}}
+
+	bidType, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	assert.Equal(t, openrtb_ext.BidTypeNative, bidType)
+	assert.True(t, strings.HasPrefix(adm, `{"native":`))
+	assert.Contains(t, adm, `"assets"`)
+}
+
+func TestMakeBidsReadsResultsAndAdomain(t *testing.T) {
+	adg := newTestAdapter(t)
 
 	internalRequest := &openrtb2.BidRequest{
-		ID: "test-success-bid-request",
+		ID: "test",
 		Imp: []openrtb2.Imp{
-			{ID: "bidRequest-success-test", Banner: &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}}}, Ext: json.RawMessage(`{"bidder": { "id": "58278" }}`)},
+			{ID: "imp-1", Banner: &openrtb2.Banner{Format: []openrtb2.Format{{W: 300, H: 250}}}, Ext: json.RawMessage(`{"bidder":{"id":"58278"}}`)},
 		},
-		Device: &openrtb2.Device{UA: "testUA", IP: "testIP"},
-		Site:   &openrtb2.Site{Page: "https://supership.com"},
-		User:   &openrtb2.User{BuyerUID: "buyerID"},
 	}
-	externalRequest := adapters.RequestData{}
-	response := adapters.ResponseData{
-		StatusCode: 200,
-		Body:       ([]byte)("{\n \"ad\": \"testAd\",\n \"cpm\": 30,\n \"creativeid\": \"Dummy_supership.jp\",\n \"h\": 250,\n \"locationid\": \"58278\",\n \"results\": [{}],\n \"dealid\": \"test-deal-id\",\n \"w\": 300\n }"),
-	}
-	// default Currency InternalRequest
-	defaultCurBidderResponse, errs := bidder.MakeBids(internalRequest, &externalRequest, &response)
-	if len(errs) > 0 {
-		t.Errorf("MakeBids return errors. errors: %v", errs)
-	}
-	checkBidResponse(t, defaultCurBidderResponse, bidderAdgeneration.defaultCurrency)
+	respBody := `{
+		"locationid": "58278",
+		"results": [{
+			"ad": "<body>testAd</body>",
+			"beacon": "",
+			"cpm": 30,
+			"creativeid": "Dummy_supership.jp",
+			"dealid": "test-deal",
+			"h": 250,
+			"w": 300,
+			"adomain": ["advertiser.example"]
+		}]
+	}`
+	resp := &adapters.ResponseData{StatusCode: 200, Body: []byte(respBody)}
 
-	// Specified Currency InternalRequest
-	usdCur := "USD"
-	internalRequest.Cur = []string{usdCur}
-	specifiedCurBidderResponse, errs := bidder.MakeBids(internalRequest, &externalRequest, &response)
-	if len(errs) > 0 {
-		t.Errorf("MakeBids return errors. errors: %v", errs)
-	}
-	checkBidResponse(t, specifiedCurBidderResponse, usdCur)
+	bidderResp, errs := adg.MakeBids(internalRequest, &adapters.RequestData{}, resp)
+	assert.Empty(t, errs)
+	assert.NotNil(t, bidderResp)
+	assert.Equal(t, "JPY", bidderResp.Currency)
+	assert.Len(t, bidderResp.Bids, 1)
 
+	bid := bidderResp.Bids[0]
+	assert.Equal(t, openrtb_ext.BidTypeBanner, bid.BidType)
+	assert.Equal(t, "58278", bid.Bid.ID)
+	assert.Equal(t, "imp-1", bid.Bid.ImpID)
+	assert.Equal(t, "testAd", bid.Bid.AdM)
+	assert.Equal(t, 30.0, bid.Bid.Price)
+	assert.Equal(t, int64(300), bid.Bid.W)
+	assert.Equal(t, int64(250), bid.Bid.H)
+	assert.Equal(t, "Dummy_supership.jp", bid.Bid.CrID)
+	assert.Equal(t, "test-deal", bid.Bid.DealID)
+	assert.Equal(t, []string{"advertiser.example"}, bid.Bid.ADomain)
 }
 
-func checkBidResponse(t *testing.T, bidderResponse *adapters.BidderResponse, expectedCurrency string) {
-	if bidderResponse == nil {
-		t.Errorf("actual bidResponse is nil.")
-	}
+func TestMakeBidsReturnsNilOnNoContent(t *testing.T) {
+	adg := newTestAdapter(t)
+	resp := &adapters.ResponseData{StatusCode: http.StatusNoContent}
+	bidderResp, errs := adg.MakeBids(&openrtb2.BidRequest{}, &adapters.RequestData{}, resp)
+	assert.Nil(t, bidderResp)
+	assert.Empty(t, errs)
+}
 
-	// AdM is assured by TestCreateAd and JSON tests
-	var expectedAdM string = "testAd"
-	var expectedID string = "58278"
-	var expectedImpID = "bidRequest-success-test"
-	var expectedPrice float64 = 30.0
-	var expectedW int64 = 300
-	var expectedH int64 = 250
-	var expectedCrID string = "Dummy_supership.jp"
-	var extectedDealID string = "test-deal-id"
-
-	//nolint: staticcheck // false positive SA5011: possible nil pointer dereference
-	assert.Equal(t, expectedCurrency, bidderResponse.Currency)
-	assert.Equal(t, 1, len(bidderResponse.Bids))
-	assert.Equal(t, expectedID, bidderResponse.Bids[0].Bid.ID)
-	assert.Equal(t, expectedImpID, bidderResponse.Bids[0].Bid.ImpID)
-	assert.Equal(t, expectedAdM, bidderResponse.Bids[0].Bid.AdM)
-	assert.Equal(t, expectedPrice, bidderResponse.Bids[0].Bid.Price)
-	assert.Equal(t, expectedW, bidderResponse.Bids[0].Bid.W)
-	assert.Equal(t, expectedH, bidderResponse.Bids[0].Bid.H)
-	assert.Equal(t, expectedCrID, bidderResponse.Bids[0].Bid.CrID)
-	assert.Equal(t, extectedDealID, bidderResponse.Bids[0].Bid.DealID)
+func TestMakeBidsReturnsErrorOn400(t *testing.T) {
+	adg := newTestAdapter(t)
+	resp := &adapters.ResponseData{StatusCode: http.StatusBadRequest}
+	bidderResp, errs := adg.MakeBids(&openrtb2.BidRequest{}, &adapters.RequestData{}, resp)
+	assert.Nil(t, bidderResp)
+	assert.Len(t, errs, 1)
 }
