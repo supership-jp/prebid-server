@@ -280,17 +280,19 @@ func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, e
 // buildAdMarkup は results[0] から AdM を構築する。Native レスポンスがあれば
 // それを優先し、無ければ banner (vastxml があれば動画タグ差し込み) として返す。
 func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *openrtb2.Imp) (openrtb_ext.BidType, string, error) {
-	// Native: 懸念 — バックエンドが返す native オブジェクトが OpenRTB native
+	// Native: バックエンドが返す native オブジェクトが OpenRTB native
 	// response ({"native": {...assets, link, imptrackers...}}) と互換である前提。
 	// Prebid.js 実装からは asset id (1=title, 2=image, 3=icon, 4=sponsoredBy,
 	// 5=body, 6=cta, 502=privacyLink) は OpenRTB 互換と見られる。
-	// beaconurl は impressionTrackers に追加が必要だが、現状はパススルーとして
-	// バックエンドが OpenRTB に整合した形で返すことを期待する (parity-concerns.md §7)。
 	if len(adResult.Native) > 0 && imp.Native != nil {
 		// AdM は OpenRTB native admarkup の JSON 文字列。
-		// バックエンドが {"native": {...}} 形式で返す場合と {assets:...} のみで
-		// 返す場合があり得るため、両対応で薄くラップする。
-		admBytes := wrapNativeAdm(adResult.Native)
+		// バックエンドが {"native": {...}} 形式 / {assets:...} 直下のどちらでも、
+		// 最終的に {"native":{...}} 形式に揃え、beaconurl を imptrackers に追加する
+		// (Prebid.js: createNativeAd で beaconurl を impressionTrackers に push する挙動と一致)。
+		admBytes, err := wrapNativeAdm(adResult.Native, adResult.Beaconurl)
+		if err != nil {
+			return "", "", err
+		}
 		return openrtb_ext.BidTypeNative, string(admBytes), nil
 	}
 
@@ -300,7 +302,7 @@ func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *
 		// Prebid.js は location_params.option.ad_type === "upper_billboard" のとき
 		// ADGBrowserM タグで差し込む。それ以外は APV タグ。
 		if isUpperBillboard(locationParams) {
-			ad = wrapWithADGBrowserM(adResult.Vastxml)
+			ad = wrapWithADGBrowserM(adResult.Vastxml, extractMarginTop(imp))
 		} else {
 			ad = wrapWithAPV(imp.ID, adResult.Vastxml)
 		}
@@ -312,26 +314,52 @@ func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *
 	return openrtb_ext.BidTypeBanner, ad, nil
 }
 
-// wrapNativeAdm は results[0].native の生 JSON を AdM 用にラップする。
-// バックエンドが既に {"native":{...}} 形式で返している場合はそのまま、
-// {"assets":...} 直下なら {"native":...} で包む。
-func wrapNativeAdm(raw json.RawMessage) []byte {
-	trimmed := strings.TrimSpace(string(raw))
-	if strings.HasPrefix(trimmed, "{") {
-		// すでに { から始まる場合の判定: native キーを含むか粗くチェック。
-		// 厳密にやるなら一度 unmarshal するが、性能優先でプレフィックスのみ確認。
-		if strings.Contains(trimmed[:min(64, len(trimmed))], "\"native\"") {
-			return []byte(trimmed)
+// wrapNativeAdm は results[0].native の生 JSON を AdM 用にラップし、
+// beaconUrl を native.imptrackers に追加する。バックエンドが既に
+// {"native":{...}} 形式で返す場合と {"assets":...} 直下で返す場合の両方を吸収する。
+func wrapNativeAdm(raw json.RawMessage, beaconUrl string) ([]byte, error) {
+	var top map[string]json.RawMessage
+	if err := jsonutil.Unmarshal(raw, &top); err != nil {
+		return nil, err
+	}
+	var native map[string]json.RawMessage
+	if inner, ok := top["native"]; ok {
+		if err := jsonutil.Unmarshal(inner, &native); err != nil {
+			return nil, err
+		}
+	} else {
+		native = top
+	}
+
+	if beaconUrl != "" {
+		var trackers []string
+		if rawTrackers, ok := native["imptrackers"]; ok {
+			if err := jsonutil.Unmarshal(rawTrackers, &trackers); err != nil {
+				return nil, err
+			}
+		}
+		duplicate := false
+		for _, t := range trackers {
+			if t == beaconUrl {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			trackers = append(trackers, beaconUrl)
+			encoded, err := json.Marshal(trackers)
+			if err != nil {
+				return nil, err
+			}
+			native["imptrackers"] = encoded
 		}
 	}
-	return []byte(`{"native":` + trimmed + `}`)
-}
 
-func min(a, b int) int {
-	if a < b {
-		return a
+	nativeBytes, err := json.Marshal(native)
+	if err != nil {
+		return nil, err
 	}
-	return b
+	return []byte(`{"native":` + string(nativeBytes) + `}`), nil
 }
 
 func isUpperBillboard(p *adgLocationParams) bool {
@@ -350,16 +378,31 @@ func wrapWithAPV(impID, vastxml string) string {
 		"</body>"
 }
 
-func wrapWithADGBrowserM(vastxml string) string {
-	// 懸念: Prebid.js は params.marginTop を使うが、Prebid Server には imp.ext.params
-	// の概念がそのままは無いため、現状は marginTop=0 固定。必要なら ExtImpAdgeneration
-	// に MarginTop を追加する (parity-concerns.md §10)。
+func wrapWithADGBrowserM(vastxml, marginTop string) string {
+	// Prebid.js は bidder params.marginTop を ADGBrowserM.init({marginTop}) に渡す。
+	// Prebid Server では imp.ext.bidder.marginTop に置く (ExtImpAdgeneration.MarginTop)。
+	// 未指定時は Prebid.js と同じく '0'。
+	if marginTop == "" {
+		marginTop = "0"
+	}
 	rep := regexp.MustCompile(`/\r?\n/g`)
 	replaced := rep.ReplaceAllString(vastxml, "")
 	return "<body>" +
 		"<script type=\"text/javascript\" src=\"https://i.socdm.com/sdk/js/adg-browser-m.js\"></script>" +
-		"<script type=\"text/javascript\">window.ADGBrowserM.init({vastXml: '" + replaced + "', marginTop: '0'});</script>" +
+		"<script type=\"text/javascript\">window.ADGBrowserM.init({vastXml: '" + replaced + "', marginTop: '" + marginTop + "'});</script>" +
 		"</body>"
+}
+
+// extractMarginTop は imp.ext.bidder.marginTop を取り出す。取得失敗時は空文字。
+func extractMarginTop(imp *openrtb2.Imp) string {
+	if imp == nil || len(imp.Ext) == 0 {
+		return ""
+	}
+	adgExt, err := unmarshalExtImpAdgeneration(imp)
+	if err != nil {
+		return ""
+	}
+	return adgExt.MarginTop
 }
 
 func appendChildToBody(ad string, data string) string {
@@ -381,7 +424,8 @@ func removeWrapper(ad string) string {
 func Builder(bidderName openrtb_ext.BidderName, config config.Adapter, server config.Server) (adapters.Bidder, error) {
 	bidder := &AdgenerationAdapter{
 		config.Endpoint,
-		"1.0.3",
+		// Prebid.js v1.6.6 (ADGENE_PREBID_VERSION) と揃え、ADG プロトコルバージョンとして共通管理する。
+		"1.6.6",
 		"JPY",
 	}
 	return bidder, nil

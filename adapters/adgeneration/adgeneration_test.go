@@ -80,7 +80,7 @@ func TestBuildRequestPostsToAdgenPrebid(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(r.Body, &body))
 	assert.Equal(t, "JPY", body.Currency)
 	assert.Equal(t, "prebidserver", body.Sdkname)
-	assert.Equal(t, "1.0.3", body.Adapterver)
+	assert.Equal(t, "1.6.6", body.Adapterver)
 	assert.Equal(t, 1, body.Imark, "banner request should set imark=1")
 	assert.NotEmpty(t, body.Pbver)
 	assert.Len(t, body.Ortb.Imp, 1)
@@ -185,6 +185,24 @@ func TestBuildAdMarkupVastUsesADGBrowserMOnUpperBillboard(t *testing.T) {
 	assert.Equal(t, openrtb_ext.BidTypeBanner, bidType)
 	assert.Contains(t, adm, "adg-browser-m.js")
 	assert.NotContains(t, adm, "apvad-")
+	// marginTop 未指定時は Prebid.js と同じく '0' を埋める。
+	assert.Contains(t, adm, "marginTop: '0'")
+}
+
+func TestBuildAdMarkupVastADGBrowserMUsesBidderMarginTop(t *testing.T) {
+	adResult := &adgResult{
+		Ad:      "<!DOCTYPE html><body></body>",
+		Vastxml: "<VAST/>",
+	}
+	loc := &adgLocationParams{Option: &adgLocationOption{AdType: "upper_billboard"}}
+	imp := &openrtb2.Imp{
+		ID:     "imp-ub",
+		Banner: &openrtb2.Banner{},
+		Ext:    json.RawMessage(`{"bidder":{"id":"58278","marginTop":"42"}}`),
+	}
+	_, adm, err := buildAdMarkup(adResult, loc, imp)
+	assert.NoError(t, err)
+	assert.Contains(t, adm, "marginTop: '42'")
 }
 
 func TestBuildAdMarkupNative(t *testing.T) {
@@ -197,6 +215,41 @@ func TestBuildAdMarkupNative(t *testing.T) {
 	assert.Equal(t, openrtb_ext.BidTypeNative, bidType)
 	assert.True(t, strings.HasPrefix(adm, `{"native":`))
 	assert.Contains(t, adm, `"assets"`)
+}
+
+func TestBuildAdMarkupNativeAppendsBeaconUrlToImptrackers(t *testing.T) {
+	rawNative := json.RawMessage(`{"assets":[{"id":1,"title":{"text":"hello"}}],"link":{"url":"https://l.example/"},"imptrackers":["https://existing.example/imp"]}`)
+	adResult := &adgResult{Native: rawNative, Beaconurl: "https://tg.example/bc"}
+	imp := &openrtb2.Imp{ID: "imp-native", Native: &openrtb2.Native{Request: `{}`}}
+
+	_, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	assert.Contains(t, adm, "https://existing.example/imp")
+	assert.Contains(t, adm, "https://tg.example/bc", "beaconurl must be appended to imptrackers")
+}
+
+func TestBuildAdMarkupNativeBeaconUrlDeduplicated(t *testing.T) {
+	rawNative := json.RawMessage(`{"assets":[{"id":1,"title":{"text":"hi"}}],"imptrackers":["https://tg.example/bc"]}`)
+	adResult := &adgResult{Native: rawNative, Beaconurl: "https://tg.example/bc"}
+	imp := &openrtb2.Imp{ID: "imp-native", Native: &openrtb2.Native{Request: `{}`}}
+
+	_, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	// 既に imptrackers に含まれている場合は重複追加しない。
+	assert.Equal(t, 1, strings.Count(adm, "https://tg.example/bc"))
+}
+
+func TestBuildAdMarkupNativeAcceptsWrappedInput(t *testing.T) {
+	rawNative := json.RawMessage(`{"native":{"assets":[{"id":1,"title":{"text":"hi"}}]}}`)
+	adResult := &adgResult{Native: rawNative, Beaconurl: "https://tg.example/bc"}
+	imp := &openrtb2.Imp{ID: "imp-native", Native: &openrtb2.Native{Request: `{}`}}
+
+	_, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	assert.True(t, strings.HasPrefix(adm, `{"native":`))
+	// 入れ子 native を二重ラップしない (= 出力に "native" は 1 回しか現れない)。
+	assert.Equal(t, 1, strings.Count(adm, `"native"`))
+	assert.Contains(t, adm, "https://tg.example/bc")
 }
 
 func TestMakeBidsReadsResultsAndAdomain(t *testing.T) {

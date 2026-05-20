@@ -39,7 +39,7 @@
                     "currency": "JPY",
                     "pbver": "unknown",
                     "sdkname": "prebidserver",
-                    "adapterver": "1.0.3",
+                    "adapterver": "1.6.6",
                     "ortb": {
                         "id": "some-request-id",
                         "imp": [
