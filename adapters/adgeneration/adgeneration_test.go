@@ -124,6 +124,8 @@ func TestBuildRequestRejectsBadExt(t *testing.T) {
 	assert.Len(t, requests, 1, "valid imp should still produce a request")
 }
 
+// TestGetCurrency は Prebid.js (adgenerationBidAdapter.js: getCurrencyType) と同じ
+// 二択挙動: USD を含めば USD、それ以外は JPY。
 func TestGetCurrency(t *testing.T) {
 	adg := newTestAdapter(t)
 	cases := []struct {
@@ -131,9 +133,12 @@ func TestGetCurrency(t *testing.T) {
 		cur  []string
 		want string
 	}{
-		{"default when empty", nil, "JPY"},
-		{"prefers JPY when supported", []string{"USD", "JPY"}, "JPY"},
-		{"falls back to first when JPY missing", []string{"USD", "EUR"}, "USD"},
+		{"default JPY when empty", nil, "JPY"},
+		{"USD wins over JPY", []string{"USD", "JPY"}, "USD"},
+		{"USD only", []string{"USD"}, "USD"},
+		{"unrelated currency falls back to JPY", []string{"EUR"}, "JPY"},
+		{"JPY only", []string{"JPY"}, "JPY"},
+		{"case-insensitive usd", []string{"usd"}, "USD"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -170,6 +175,34 @@ func TestBuildAdMarkupVastUsesAPV(t *testing.T) {
 	assert.Equal(t, openrtb_ext.BidTypeBanner, bidType)
 	assert.Contains(t, adm, "apvad-imp-vast")
 	assert.Contains(t, adm, "cdn.apvdr.com/js/VideoAd.min.js")
+}
+
+// vastxml に含まれる改行が JS 文字列リテラル内に残らないこと (Prebid.js: /\r?\n/g 相当)。
+func TestBuildAdMarkupVastStripsNewlinesInsideJsLiteral(t *testing.T) {
+	adResult := &adgResult{
+		Ad:      "<!DOCTYPE html><body></body>",
+		Vastxml: "<VAST>\r\nfoo\nbar\n</VAST>",
+	}
+	imp := &openrtb2.Imp{ID: "imp-vast", Banner: &openrtb2.Banner{}}
+	_, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	// APV.VideoAd(...).load('...') の引数内に改行が残ると JS 文字列が壊れる。
+	assert.NotContains(t, adm, "load('<VAST>\r\nfoo")
+	assert.NotContains(t, adm, "load('<VAST>\nfoo")
+	assert.Contains(t, adm, "load('<VAST>foobar</VAST>')")
+}
+
+func TestBuildAdMarkupADGBrowserMStripsNewlines(t *testing.T) {
+	adResult := &adgResult{
+		Ad:      "<!DOCTYPE html><body></body>",
+		Vastxml: "<VAST>\r\nfoo\n</VAST>",
+	}
+	loc := &adgLocationParams{Option: &adgLocationOption{AdType: "upper_billboard"}}
+	imp := &openrtb2.Imp{ID: "imp-ub", Banner: &openrtb2.Banner{}}
+	_, adm, err := buildAdMarkup(adResult, loc, imp)
+	assert.NoError(t, err)
+	assert.NotContains(t, adm, "vastXml: '<VAST>\r\nfoo")
+	assert.Contains(t, adm, "vastXml: '<VAST>foo</VAST>'")
 }
 
 func TestBuildAdMarkupVastUsesADGBrowserMOnUpperBillboard(t *testing.T) {
@@ -239,6 +272,31 @@ func TestBuildAdMarkupNativeBeaconUrlDeduplicated(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(adm, "https://tg.example/bc"))
 }
 
+// Prebid.js isNative() 互換: assets が空/欠落なら native ではなく banner として扱う。
+func TestBuildAdMarkupFallsBackToBannerWhenNativeAssetsMissing(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"empty assets", `{"assets":[],"link":{"url":"https://l.example/"}}`},
+		{"no assets key", `{"link":{"url":"https://l.example/"}}`},
+		{"wrapped empty assets", `{"native":{"assets":[]}}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			adResult := &adgResult{
+				Native: json.RawMessage(c.raw),
+				Ad:     "<body>fallback banner</body>",
+			}
+			imp := &openrtb2.Imp{ID: "imp-native", Native: &openrtb2.Native{Request: `{}`}}
+			bidType, adm, err := buildAdMarkup(adResult, nil, imp)
+			assert.NoError(t, err)
+			assert.Equal(t, openrtb_ext.BidTypeBanner, bidType)
+			assert.Equal(t, "fallback banner", adm)
+		})
+	}
+}
+
 func TestBuildAdMarkupNativeAcceptsWrappedInput(t *testing.T) {
 	rawNative := json.RawMessage(`{"native":{"assets":[{"id":1,"title":{"text":"hi"}}]}}`)
 	adResult := &adgResult{Native: rawNative, Beaconurl: "https://tg.example/bc"}
@@ -276,7 +334,8 @@ func TestMakeBidsReadsResultsAndAdomain(t *testing.T) {
 	}`
 	resp := &adapters.ResponseData{StatusCode: 200, Body: []byte(respBody)}
 
-	bidderResp, errs := adg.MakeBids(internalRequest, &adapters.RequestData{}, resp)
+	sentBody, _ := json.Marshal(adgRequestBody{Ortb: openrtb2.BidRequest{Imp: []openrtb2.Imp{{ID: "imp-1"}}}})
+	bidderResp, errs := adg.MakeBids(internalRequest, &adapters.RequestData{Body: sentBody}, resp)
 	assert.Empty(t, errs)
 	assert.NotNil(t, bidderResp)
 	assert.Equal(t, "JPY", bidderResp.Currency)

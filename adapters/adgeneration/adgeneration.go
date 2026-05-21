@@ -195,16 +195,16 @@ func unmarshalExtImpAdgeneration(imp *openrtb2.Imp) (*openrtb_ext.ExtImpAdgenera
 	return &adgExt, nil
 }
 
+// getCurrency は Prebid.js (adgenerationBidAdapter.js: getCurrencyType) と同じ
+// 二択ロジック: request.Cur に USD が含まれていれば "USD"、それ以外は "JPY"。
+// 先頭通貨へのフォールバックは廃止 (EUR/GBP 等の素通しは仕様外)。
 func (adg *AdgenerationAdapter) getCurrency(request *openrtb2.BidRequest) string {
-	if len(request.Cur) <= 0 {
-		return adg.defaultCurrency
-	}
 	for _, c := range request.Cur {
-		if adg.defaultCurrency == c {
-			return c
+		if strings.EqualFold(c, "USD") {
+			return "USD"
 		}
 	}
-	return request.Cur[0]
+	return adg.defaultCurrency
 }
 
 func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, externalRequest *adapters.RequestData, response *adapters.ResponseData) (*adapters.BidderResponse, []error) {
@@ -233,14 +233,23 @@ func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, e
 	// Prebid.js と同じく results[0] のみを採用 (1 imp / 1 リクエストのため)。
 	adResult := bidResp.Results[0]
 
-	// 対応する imp を locationid で逆引き。
+	// Prebid.js は bidRequests.data.ortb.imp[0] を直接参照するので、こちらも
+	// 送信済 body から imp[0].id を取り出して対応 imp を引く。バックエンドが
+	// locationid を返さない / 値がずれていても silent no-bid にしないため。
+	if externalRequest == nil || len(externalRequest.Body) == 0 {
+		return nil, nil
+	}
+	var sentBody adgRequestBody
+	if err := jsonutil.Unmarshal(externalRequest.Body, &sentBody); err != nil {
+		return nil, []error{err}
+	}
+	if len(sentBody.Ortb.Imp) == 0 {
+		return nil, nil
+	}
+	targetImpID := sentBody.Ortb.Imp[0].ID
 	var matchedImp *openrtb2.Imp
 	for i := range internalRequest.Imp {
-		adgExt, err := unmarshalExtImpAdgeneration(&internalRequest.Imp[i])
-		if err != nil {
-			return nil, []error{&errortypes.BadServerResponse{Message: err.Error()}}
-		}
-		if adgExt.Id == bidResp.Locationid {
+		if internalRequest.Imp[i].ID == targetImpID {
 			matchedImp = &internalRequest.Imp[i]
 			break
 		}
@@ -282,9 +291,8 @@ func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, e
 func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *openrtb2.Imp) (openrtb_ext.BidType, string, error) {
 	// Native: バックエンドが返す native オブジェクトが OpenRTB native
 	// response ({"native": {...assets, link, imptrackers...}}) と互換である前提。
-	// Prebid.js 実装からは asset id (1=title, 2=image, 3=icon, 4=sponsoredBy,
-	// 5=body, 6=cta, 502=privacyLink) は OpenRTB 互換と見られる。
-	if len(adResult.Native) > 0 && imp.Native != nil {
+	// Prebid.js (isNative) と同様、assets が非空のときのみ native として扱う。
+	if len(adResult.Native) > 0 && imp.Native != nil && hasNativeAssets(adResult.Native) {
 		// AdM は OpenRTB native admarkup の JSON 文字列。
 		// バックエンドが {"native": {...}} 形式 / {assets:...} 直下のどちらでも、
 		// 最終的に {"native":{...}} 形式に揃え、beaconurl を imptrackers に追加する
@@ -312,6 +320,34 @@ func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *
 		ad = unwrapped
 	}
 	return openrtb_ext.BidTypeBanner, ad, nil
+}
+
+// hasNativeAssets は results[0].native の生 JSON に assets[] が 1 件以上あるかを返す。
+// Prebid.js isNative() (adResult.native.assets.length > 0) と同じ判定。
+// {"native":{...}} と {assets:...} 直下のどちらの形でも受け付ける。
+func hasNativeAssets(raw json.RawMessage) bool {
+	var top map[string]json.RawMessage
+	if err := jsonutil.Unmarshal(raw, &top); err != nil {
+		return false
+	}
+	var assets json.RawMessage
+	if inner, ok := top["native"]; ok {
+		var nat map[string]json.RawMessage
+		if err := jsonutil.Unmarshal(inner, &nat); err != nil {
+			return false
+		}
+		assets = nat["assets"]
+	} else {
+		assets = top["assets"]
+	}
+	if len(assets) == 0 {
+		return false
+	}
+	var arr []json.RawMessage
+	if err := jsonutil.Unmarshal(assets, &arr); err != nil {
+		return false
+	}
+	return len(arr) > 0
 }
 
 // wrapNativeAdm は results[0].native の生 JSON を AdM 用にラップし、
@@ -370,7 +406,7 @@ func isUpperBillboard(p *adgLocationParams) bool {
 }
 
 func wrapWithAPV(impID, vastxml string) string {
-	rep := regexp.MustCompile(`/\r?\n/g`)
+	rep := regexp.MustCompile(`\r?\n`)
 	replaced := rep.ReplaceAllString(vastxml, "")
 	return "<body><div id=\"apvad-" + impID + "\"></div>" +
 		"<script type=\"text/javascript\" id=\"apv\" src=\"https://cdn.apvdr.com/js/VideoAd.min.js\"></script>" +
@@ -385,7 +421,7 @@ func wrapWithADGBrowserM(vastxml, marginTop string) string {
 	if marginTop == "" {
 		marginTop = "0"
 	}
-	rep := regexp.MustCompile(`/\r?\n/g`)
+	rep := regexp.MustCompile(`\r?\n`)
 	replaced := rep.ReplaceAllString(vastxml, "")
 	return "<body>" +
 		"<script type=\"text/javascript\" src=\"https://i.socdm.com/sdk/js/adg-browser-m.js\"></script>" +
