@@ -124,6 +124,104 @@ func TestBuildRequestRejectsBadExt(t *testing.T) {
 	assert.Len(t, requests, 1, "valid imp should still produce a request")
 }
 
+// TestDetectSdkType は channel + device.os から sdktype を導出する挙動を網羅する。
+// バックエンド `/adgen/prebid` が sdktype で配信ロジックを切り替える前提。
+func TestDetectSdkType(t *testing.T) {
+	cases := []struct {
+		name string
+		req  *openrtb2.BidRequest
+		want string
+	}{
+		{
+			name: "web: channel=pbjs / site only",
+			req: &openrtb2.BidRequest{
+				Ext:  json.RawMessage(`{"prebid":{"channel":{"name":"pbjs","version":"9"}}}`),
+				Site: &openrtb2.Site{Page: "https://example.com/"},
+			},
+			want: "0",
+		},
+		{
+			name: "web: channel=amp",
+			req: &openrtb2.BidRequest{
+				Ext:  json.RawMessage(`{"prebid":{"channel":{"name":"amp"}}}`),
+				Site: &openrtb2.Site{Page: "https://example.com/"},
+			},
+			want: "0",
+		},
+		{
+			name: "mobile app android via channel",
+			req: &openrtb2.BidRequest{
+				Ext:    json.RawMessage(`{"prebid":{"channel":{"name":"app"}}}`),
+				App:    &openrtb2.App{Bundle: "com.example.app"},
+				Device: &openrtb2.Device{OS: "android"},
+			},
+			want: "1",
+		},
+		{
+			name: "mobile app ios via channel (case insensitive)",
+			req: &openrtb2.BidRequest{
+				Ext:    json.RawMessage(`{"prebid":{"channel":{"name":"APP"}}}`),
+				App:    &openrtb2.App{Bundle: "com.example.app"},
+				Device: &openrtb2.Device{OS: "iOS"},
+			},
+			want: "2",
+		},
+		{
+			name: "fallback: channel 不在で BidRequest.App のみ (android)",
+			req: &openrtb2.BidRequest{
+				App:    &openrtb2.App{Bundle: "com.example.app"},
+				Device: &openrtb2.Device{OS: "android"},
+			},
+			want: "1",
+		},
+		{
+			name: "fallback: channel 不在で BidRequest.App のみ (ios)",
+			req: &openrtb2.BidRequest{
+				App:    &openrtb2.App{Bundle: "com.example.app"},
+				Device: &openrtb2.Device{OS: "ios"},
+			},
+			want: "2",
+		},
+		{
+			name: "app context だが device.os 不明 → 0",
+			req: &openrtb2.BidRequest{
+				Ext:    json.RawMessage(`{"prebid":{"channel":{"name":"app"}}}`),
+				App:    &openrtb2.App{Bundle: "com.example.app"},
+				Device: &openrtb2.Device{OS: "tvos"},
+			},
+			want: "0",
+		},
+		{
+			name: "app と site が両方 nil → web 扱い",
+			req:  &openrtb2.BidRequest{},
+			want: "0",
+		},
+		{
+			name: "app + site 両方ある場合は channel 優先 (channel=app)",
+			req: &openrtb2.BidRequest{
+				Ext:    json.RawMessage(`{"prebid":{"channel":{"name":"app"}}}`),
+				App:    &openrtb2.App{Bundle: "com.example.app"},
+				Site:   &openrtb2.Site{Page: "https://example.com/"},
+				Device: &openrtb2.Device{OS: "android"},
+			},
+			want: "1",
+		},
+		{
+			name: "壊れた ext は channel 不在として扱う (= site があれば web)",
+			req: &openrtb2.BidRequest{
+				Ext:  json.RawMessage(`{not-json`),
+				Site: &openrtb2.Site{Page: "https://example.com/"},
+			},
+			want: "0",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, detectSdkType(c.req))
+		})
+	}
+}
+
 // TestGetCurrency は Prebid.js (adgenerationBidAdapter.js: getCurrencyType) と同じ
 // 二択挙動: USD を含めば USD、それ以外は JPY。
 func TestGetCurrency(t *testing.T) {

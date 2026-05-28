@@ -116,7 +116,7 @@ func (adg *AdgenerationAdapter) buildRequest(request *openrtb2.BidRequest, index
 		return nil, &errortypes.BadInput{Message: err.Error()}
 	}
 
-	uri, err := adg.buildUri(adgExt.Id)
+	uri, err := adg.buildUri(adgExt.Id, request)
 	if err != nil {
 		return nil, &errortypes.BadInput{Message: err.Error()}
 	}
@@ -135,7 +135,7 @@ func (adg *AdgenerationAdapter) buildRequest(request *openrtb2.BidRequest, index
 	}, nil
 }
 
-func (adg *AdgenerationAdapter) buildUri(id string) (string, error) {
+func (adg *AdgenerationAdapter) buildUri(id string, request *openrtb2.BidRequest) (string, error) {
 	uriObj, err := url.Parse(adg.endpoint)
 	if err != nil {
 		return "", err
@@ -143,13 +143,59 @@ func (adg *AdgenerationAdapter) buildUri(id string) (string, error) {
 	v := url.Values{}
 	v.Set("id", id)
 	v.Set("posall", "SSPLOC")
-	// 懸念: Prebid.js は常に sdktype=0 (web 想定) を送る。Prebid Server は app
-	// 経由でも呼ばれるため、本来は OS で 0/1/2 を出し分けたい (旧 upstream 実装)。
-	// パリティ優先で 0 固定にしている。app 配信の挙動はバックエンド側で
-	// ortb.app の有無を見て判定する想定。詳細は parity-concerns.md §4。
-	v.Set("sdktype", "0")
+	v.Set("sdktype", detectSdkType(request))
 	uriObj.RawQuery = v.Encode()
 	return uriObj.String(), nil
+}
+
+// detectSdkType はリクエスト元 (channel) と device.os から sdktype を決める。
+// バックエンド `/adgen/prebid` は sdktype で配信ロジックを切り替えるため、
+// Web 経由は "0"、Prebid Mobile (Android) は "1"、Prebid Mobile (iOS) は "2"
+// を入れる。Prebid.js (CSHB) は常に "0" を送るが、PBS は (B) PBJS+PBS / (C)
+// PBS only (Mobile SDK / AMP) など複数経路から呼ばれるため判定が必要。
+//
+// 判定優先順位:
+//  1. ext.prebid.channel.name == "app" → mobile SDK 経由
+//  2. channel 不在なら BidRequest.App の存在で判定 (App があれば mobile)
+//  3. それ以外 → web (sdktype "0")
+//
+// 1. または 2. に該当する場合は device.os で 1/2 に振り分け、OS 不明なら "0"。
+func detectSdkType(request *openrtb2.BidRequest) string {
+	if !isAppContext(request) {
+		return "0"
+	}
+	if request.Device != nil {
+		switch strings.ToLower(request.Device.OS) {
+		case "android":
+			return "1"
+		case "ios":
+			return "2"
+		}
+	}
+	return "0"
+}
+
+func isAppContext(request *openrtb2.BidRequest) bool {
+	if name := requestChannelName(request); name != "" {
+		return strings.EqualFold(name, "app")
+	}
+	// channel 不在時のフォールバック: BidRequest.App があれば mobile app 扱い。
+	// (AMP / web から App が埋まることは通常なく、Prebid Mobile SDK が App を埋める)
+	return request.App != nil
+}
+
+func requestChannelName(request *openrtb2.BidRequest) string {
+	if request == nil || len(request.Ext) == 0 {
+		return ""
+	}
+	var reqExt openrtb_ext.ExtRequest
+	if err := jsonutil.Unmarshal(request.Ext, &reqExt); err != nil {
+		return ""
+	}
+	if reqExt.Prebid.Channel == nil {
+		return ""
+	}
+	return reqExt.Prebid.Channel.Name
 }
 
 func (adg *AdgenerationAdapter) buildBody(request *openrtb2.BidRequest, imp openrtb2.Imp) ([]byte, error) {
