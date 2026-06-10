@@ -33,10 +33,10 @@ type AdgenerationAdapter struct {
 // adgRequestBody は POST body の JSON 構造。Prebid.js の `data` オブジェクト
 // (currency / pbver / sdkname / adapterver / ortb / imark) と一致させる。
 type adgRequestBody struct {
-	Currency   string             `json:"currency"`
-	Pbver      string             `json:"pbver"`
-	Sdkname    string             `json:"sdkname"`
-	Adapterver string             `json:"adapterver"`
+	Currency   string              `json:"currency"`
+	Pbver      string              `json:"pbver"`
+	Sdkname    string              `json:"sdkname"`
+	Adapterver string              `json:"adapterver"`
 	Ortb       openrtb2.BidRequest `json:"ortb"`
 	// imark は native でないとき (= banner) のみ 1 を送る。
 	// Prebid.js 側コメント「native以外にvideo等の対応が入った場合は要修正」を踏襲。
@@ -46,9 +46,9 @@ type adgRequestBody struct {
 // adgServerResponse はバックエンド (d.socdm.com/adgen/prebid) の応答形式。
 // Prebid.js は body.results[0] から取り出すため、results 優先で読む。
 type adgServerResponse struct {
-	Locationid     string                 `json:"locationid"`
-	LocationParams *adgLocationParams     `json:"location_params,omitempty"`
-	Results        []adgResult            `json:"results"`
+	Locationid     string             `json:"locationid"`
+	LocationParams *adgLocationParams `json:"location_params,omitempty"`
+	Results        []adgResult        `json:"results"`
 }
 
 type adgLocationParams struct {
@@ -310,13 +310,13 @@ func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, e
 	}
 
 	bid := openrtb2.Bid{
-		ID:    bidResp.Locationid,
-		ImpID: matchedImp.ID,
-		AdM:   adm,
-		Price: adResult.Cpm,
-		W:     int64(adResult.W),
-		H:     int64(adResult.H),
-		CrID:  adResult.Creativeid,
+		ID:     bidResp.Locationid,
+		ImpID:  matchedImp.ID,
+		AdM:    adm,
+		Price:  adResult.Cpm,
+		W:      int64(adResult.W),
+		H:      int64(adResult.H),
+		CrID:   adResult.Creativeid,
 		DealID: adResult.Dealid,
 	}
 	if len(adResult.Adomain) > 0 {
