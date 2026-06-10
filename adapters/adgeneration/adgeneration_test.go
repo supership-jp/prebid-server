@@ -287,7 +287,10 @@ func TestBuildAdMarkupVastStripsNewlinesInsideJsLiteral(t *testing.T) {
 	// APV.VideoAd(...).load('...') の引数内に改行が残ると JS 文字列が壊れる。
 	assert.NotContains(t, adm, "load('<VAST>\r\nfoo")
 	assert.NotContains(t, adm, "load('<VAST>\nfoo")
-	assert.Contains(t, adm, "load('<VAST>foobar</VAST>')")
+	// VAST は percent-encoding して decodeURIComponent で復元する
+	// (adm に生の "<VAST" が残ると Prebid Mobile iOS が VAST と誤判定するため)。
+	assert.Contains(t, adm, "load(decodeURIComponent('%3CVAST%3Efoobar%3C%2FVAST%3E'))")
+	assert.NotContains(t, adm, "<VAST>")
 }
 
 func TestBuildAdMarkupADGBrowserMStripsNewlines(t *testing.T) {
@@ -300,7 +303,10 @@ func TestBuildAdMarkupADGBrowserMStripsNewlines(t *testing.T) {
 	_, adm, err := buildAdMarkup(adResult, loc, imp)
 	assert.NoError(t, err)
 	assert.NotContains(t, adm, "vastXml: '<VAST>\r\nfoo")
-	assert.Contains(t, adm, "vastXml: '<VAST>foo</VAST>'")
+	// VAST は percent-encoding して decodeURIComponent で復元する
+	// (adm に生の "<VAST" が残ると Prebid Mobile iOS が VAST と誤判定するため)。
+	assert.Contains(t, adm, "vastXml: decodeURIComponent('%3CVAST%3Efoo%3C%2FVAST%3E')")
+	assert.NotContains(t, adm, "<VAST>")
 }
 
 func TestBuildAdMarkupVastUsesADGBrowserMOnUpperBillboard(t *testing.T) {

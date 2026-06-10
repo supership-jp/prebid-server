@@ -451,12 +451,31 @@ func isUpperBillboard(p *adgLocationParams) bool {
 	return p.Option.AdType == "upper_billboard"
 }
 
+// encodeVastForJS は VAST XML を percent-encoding (unreserved 文字以外すべて %XX) し、
+// JS 側で decodeURIComponent して復元できる形にする。
+// adm に生の "<VAST" 文字列が入っていると Prebid Mobile iOS (PBMTransactionFactory) が
+// HTML バナーを VAST クリエイティブと誤判定して "VAST Parsing failed" になるため、
+// JS 文字列リテラルに埋め込む VAST は必ずエンコードする。
+// (decodeURIComponent は %XX を UTF-8 として解釈するためマルチバイトも安全)
+func encodeVastForJS(s string) string {
+	var b strings.Builder
+	for _, c := range []byte(s) {
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			c == '-' || c == '_' || c == '.' || c == '~' {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
+}
+
 func wrapWithAPV(impID, vastxml string) string {
 	rep := regexp.MustCompile(`\r?\n`)
 	replaced := rep.ReplaceAllString(vastxml, "")
 	return "<body><div id=\"apvad-" + impID + "\"></div>" +
 		"<script type=\"text/javascript\" id=\"apv\" src=\"https://cdn.apvdr.com/js/VideoAd.min.js\"></script>" +
-		"<script type=\"text/javascript\"> (function(){ new APV.VideoAd({s:\"" + impID + "\"}).load('" + replaced + "'); })(); </script>" +
+		"<script type=\"text/javascript\"> (function(){ new APV.VideoAd({s:\"" + impID + "\"}).load(decodeURIComponent('" + encodeVastForJS(replaced) + "')); })(); </script>" +
 		"</body>"
 }
 
@@ -471,7 +490,7 @@ func wrapWithADGBrowserM(vastxml, marginTop string) string {
 	replaced := rep.ReplaceAllString(vastxml, "")
 	return "<body>" +
 		"<script type=\"text/javascript\" src=\"https://i.socdm.com/sdk/js/adg-browser-m.js\"></script>" +
-		"<script type=\"text/javascript\">window.ADGBrowserM.init({vastXml: '" + replaced + "', marginTop: '" + marginTop + "'});</script>" +
+		"<script type=\"text/javascript\">window.ADGBrowserM.init({vastXml: decodeURIComponent('" + encodeVastForJS(replaced) + "'), marginTop: '" + marginTop + "'});</script>" +
 		"</body>"
 }
 
