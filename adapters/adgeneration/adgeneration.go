@@ -350,6 +350,13 @@ func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *
 		return openrtb_ext.BidTypeNative, string(admBytes), nil
 	}
 
+	// Video: imp が video を宣言している場合 (Prebid Mobile の video ad unit 等) は
+	// VAST XML をそのまま video bid として返し、レンダリングは SDK 側のプレイヤーに任せる。
+	// ADGBrowserM / APV はブラウザ用 JS プレイヤーなので Web (banner imp) 経路でのみ使う。
+	if adResult.Vastxml != "" && imp.Video != nil {
+		return openrtb_ext.BidTypeVideo, adResult.Vastxml, nil
+	}
+
 	// Banner / Video-in-Banner
 	ad := adResult.Ad
 	if adResult.Vastxml != "" {

@@ -8,6 +8,8 @@ capabilities:
     mediaTypes:
       - banner
       - native
+      # video: Prebid Mobile の video ad unit 向け。imp.video のとき VAST を生のまま返す
+      - video
   site:
     mediaTypes:
       - banner

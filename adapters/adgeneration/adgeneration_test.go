@@ -12,6 +12,7 @@ import (
 	"github.com/prebid/prebid-server/v4/adapters/adapterstest"
 	"github.com/prebid/prebid-server/v4/config"
 	"github.com/prebid/prebid-server/v4/openrtb_ext"
+	"github.com/prebid/prebid-server/v4/util/ptrutil"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -307,6 +308,48 @@ func TestBuildAdMarkupADGBrowserMStripsNewlines(t *testing.T) {
 	// (adm に生の "<VAST" が残ると Prebid Mobile iOS が VAST と誤判定するため)。
 	assert.Contains(t, adm, "vastXml: decodeURIComponent('%3CVAST%3Efoo%3C%2FVAST%3E')")
 	assert.NotContains(t, adm, "<VAST>")
+}
+
+// imp が video を宣言している場合は VAST を生のまま video bid として返す
+// (Prebid Mobile の video ad unit はレンダリングを SDK 内蔵プレイヤーが行うため、
+// ブラウザ用 JS プレイヤー (ADGBrowserM/APV) のラッパーは不要)。
+func TestBuildAdMarkupVastReturnsRawVideoWhenImpHasVideo(t *testing.T) {
+	adResult := &adgResult{
+		Ad:      "<!DOCTYPE html><body></body>",
+		Vastxml: "<VAST version=\"3.0\"><Ad/></VAST>",
+	}
+	// upper_billboard 指定でも imp.video が優先される
+	loc := &adgLocationParams{Option: &adgLocationOption{AdType: "upper_billboard"}}
+	imp := &openrtb2.Imp{ID: "imp-video", Video: &openrtb2.Video{W: ptrutil.ToPtr[int64](640), H: ptrutil.ToPtr[int64](360)}}
+	bidType, adm, err := buildAdMarkup(adResult, loc, imp)
+	assert.NoError(t, err)
+	assert.Equal(t, openrtb_ext.BidTypeVideo, bidType)
+	assert.Equal(t, "<VAST version=\"3.0\"><Ad/></VAST>", adm)
+}
+
+// banner と video の両方を持つ imp でも vastxml があれば video を優先する。
+func TestBuildAdMarkupVastPrefersVideoOnMultiFormatImp(t *testing.T) {
+	adResult := &adgResult{
+		Ad:      "<!DOCTYPE html><body></body>",
+		Vastxml: "<VAST/>",
+	}
+	imp := &openrtb2.Imp{ID: "imp-multi", Banner: &openrtb2.Banner{}, Video: &openrtb2.Video{}}
+	bidType, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	assert.Equal(t, openrtb_ext.BidTypeVideo, bidType)
+	assert.Equal(t, "<VAST/>", adm)
+}
+
+// vastxml が無ければ imp.video があっても通常の banner (Ad) を返す。
+func TestBuildAdMarkupVideoImpWithoutVastFallsBackToBanner(t *testing.T) {
+	adResult := &adgResult{
+		Ad: "<!DOCTYPE html><body><p>banner</p></body>",
+	}
+	imp := &openrtb2.Imp{ID: "imp-video", Video: &openrtb2.Video{}}
+	bidType, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	assert.Equal(t, openrtb_ext.BidTypeBanner, bidType)
+	assert.Contains(t, adm, "banner")
 }
 
 func TestBuildAdMarkupVastUsesADGBrowserMOnUpperBillboard(t *testing.T) {
