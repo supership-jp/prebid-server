@@ -18,3 +18,7 @@ userSync:
   redirect:
     url: "https://d.socdm.com/getuid?gdpr={{.GDPR}}&gdpr_consent={{.GDPRConsent}}&us_privacy={{.USPrivacy}}&gpp={{.GPP}}&gpp_sid={{.GPPSID}}&redirect={{.RedirectURL}}"
     userMacro: "$UID"
+  # NOT enabled yet: the d.socdm.com /getuid endpoint and user.buyeruid consumption are not
+  # implemented on the backend yet. Keep this syncer disabled by default. A host can turn it on
+  # via config (adapters.adgeneration.usersync.enabled) once the backend is ready.
+  enabled: false
