@@ -11,6 +11,7 @@ import (
 	"github.com/prebid/prebid-server/v4/adapters"
 	"github.com/prebid/prebid-server/v4/adapters/adapterstest"
 	"github.com/prebid/prebid-server/v4/config"
+	"github.com/prebid/prebid-server/v4/errortypes"
 	"github.com/prebid/prebid-server/v4/openrtb_ext"
 	"github.com/stretchr/testify/assert"
 )
@@ -210,6 +211,14 @@ func TestDetectSdkType(t *testing.T) {
 			name: "壊れた ext は channel 不在として扱う (= site があれば web)",
 			req: &openrtb2.BidRequest{
 				Ext:  json.RawMessage(`{not-json`),
+				Site: &openrtb2.Site{Page: "https://example.com/"},
+			},
+			want: "0",
+		},
+		{
+			name: "ext.prebid はあるが channel なし (= site があれば web)",
+			req: &openrtb2.BidRequest{
+				Ext:  json.RawMessage(`{"prebid":{}}`),
 				Site: &openrtb2.Site{Page: "https://example.com/"},
 			},
 			want: "0",
@@ -470,6 +479,184 @@ func TestMakeBidsReturnsErrorOn400(t *testing.T) {
 	adg := newTestAdapter(t)
 	resp := &adapters.ResponseData{StatusCode: http.StatusBadRequest}
 	bidderResp, errs := adg.MakeBids(&openrtb2.BidRequest{}, &adapters.RequestData{}, resp)
+	assert.Nil(t, bidderResp)
+	assert.Len(t, errs, 1)
+	assert.IsType(t, &errortypes.BadInput{}, errs[0])
+}
+
+func TestMakeRequestsReturnsErrorWhenNoImp(t *testing.T) {
+	adg := newTestAdapter(t)
+	requests, errs := adg.MakeRequests(&openrtb2.BidRequest{ID: "test"}, &adapters.ExtraRequestInfo{})
+	assert.Nil(t, requests)
+	assert.Len(t, errs, 1)
+	assert.IsType(t, &errortypes.BadInput{}, errs[0])
+}
+
+// unmarshalExtImpAdgeneration の各エラー分岐を網羅する。
+func TestUnmarshalExtImpAdgenerationErrors(t *testing.T) {
+	cases := []struct {
+		name    string
+		ext     json.RawMessage
+		wantMsg string // 空なら任意のエラーで可
+	}{
+		{"imp.ext が不正 JSON", json.RawMessage(`not-json`), ""},
+		{"bidder がオブジェクトでない", json.RawMessage(`{"bidder":"not-an-object"}`), ""},
+		{"id が空文字", json.RawMessage(`{"bidder":{"id":""}}`), "No Location ID in ExtImpAdgeneration."},
+		{"id キー欠落", json.RawMessage(`{"bidder":{"marginTop":"10"}}`), "No Location ID in ExtImpAdgeneration."},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			imp := &openrtb2.Imp{ID: "imp-x", Ext: c.ext}
+			adgExt, err := unmarshalExtImpAdgeneration(imp)
+			assert.Nil(t, adgExt)
+			assert.Error(t, err)
+			if c.wantMsg != "" {
+				assert.Equal(t, c.wantMsg, err.Error())
+			}
+		})
+	}
+}
+
+// hasNativeAssets: ラップ/非ラップ + 不正入力の判定を網羅する (Prebid.js isNative 互換)。
+func TestHasNativeAssets(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"非ラップ + assets あり", `{"assets":[{"id":1}]}`, true},
+		{"ラップ + assets あり", `{"native":{"assets":[{"id":1}]}}`, true},
+		{"assets 空配列", `{"assets":[]}`, false},
+		{"assets キーなし", `{"link":{"url":"https://l.example/"}}`, false},
+		{"不正 JSON", `not-json`, false},
+		{"ラップ native がオブジェクトでない", `{"native":123}`, false},
+		{"assets が配列でない", `{"assets":"foo"}`, false},
+		{"ラップ assets が配列でない", `{"native":{"assets":"foo"}}`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, hasNativeAssets(json.RawMessage(c.raw)))
+		})
+	}
+}
+
+// wrapNativeAdm のエラー分岐 (top/native/imptrackers の unmarshal 失敗) を網羅する。
+func TestWrapNativeAdmErrors(t *testing.T) {
+	// top の unmarshal 失敗
+	_, err := wrapNativeAdm(json.RawMessage(`not-json`), "")
+	assert.Error(t, err)
+	// ラップ native がオブジェクトでない
+	_, err = wrapNativeAdm(json.RawMessage(`{"native":123}`), "")
+	assert.Error(t, err)
+	// imptrackers が文字列配列でない (beaconUrl 追記時のみ到達)
+	_, err = wrapNativeAdm(json.RawMessage(`{"assets":[{"id":1}],"imptrackers":"not-array"}`), "https://b.example/bc")
+	assert.Error(t, err)
+}
+
+// buildAdMarkup: native adm 組み立てで wrapNativeAdm がエラーを返す経路。
+func TestBuildAdMarkupNativeWrapError(t *testing.T) {
+	adResult := &adgResult{
+		Native:    json.RawMessage(`{"assets":[{"id":1}],"imptrackers":"not-array"}`),
+		Beaconurl: "https://b.example/bc",
+	}
+	imp := &openrtb2.Imp{ID: "imp-native", Native: &openrtb2.Native{Request: `{}`}}
+	_, _, err := buildAdMarkup(adResult, nil, imp)
+	assert.Error(t, err)
+}
+
+// removeWrapper: <body> を含まない ad はそのまま返す (アンラップしない)。
+func TestBuildAdMarkupBannerWithoutBodyTags(t *testing.T) {
+	adResult := &adgResult{Ad: "plain-ad-no-body"}
+	imp := &openrtb2.Imp{ID: "imp-1", Banner: &openrtb2.Banner{}}
+	bidType, adm, err := buildAdMarkup(adResult, nil, imp)
+	assert.NoError(t, err)
+	assert.Equal(t, openrtb_ext.BidTypeBanner, bidType)
+	assert.Equal(t, "plain-ad-no-body", adm)
+}
+
+// extractMarginTop: imp.ext が不正でも marginTop は空扱い ('0' に既定化) される。
+func TestBuildAdMarkupUpperBillboardHandlesBadExt(t *testing.T) {
+	adResult := &adgResult{Ad: "<!DOCTYPE html><body></body>", Vastxml: "<VAST/>"}
+	loc := &adgLocationParams{Option: &adgLocationOption{AdType: "upper_billboard"}}
+	imp := &openrtb2.Imp{ID: "imp-ub", Banner: &openrtb2.Banner{}, Ext: json.RawMessage(`not-json`)}
+	_, adm, err := buildAdMarkup(adResult, loc, imp)
+	assert.NoError(t, err)
+	assert.Contains(t, adm, "marginTop: '0'")
+}
+
+// MakeBids: 500 は BadServerResponse を返す。
+func TestMakeBidsReturnsServerErrorOn500(t *testing.T) {
+	adg := newTestAdapter(t)
+	resp := &adapters.ResponseData{StatusCode: http.StatusInternalServerError}
+	bidderResp, errs := adg.MakeBids(&openrtb2.BidRequest{}, &adapters.RequestData{}, resp)
+	assert.Nil(t, bidderResp)
+	assert.Len(t, errs, 1)
+	assert.IsType(t, &errortypes.BadServerResponse{}, errs[0])
+}
+
+// MakeBids: 200 でボディが不正 JSON の場合はエラー。
+func TestMakeBidsReturnsErrorOnInvalidBody(t *testing.T) {
+	adg := newTestAdapter(t)
+	resp := &adapters.ResponseData{StatusCode: http.StatusOK, Body: []byte(`not-json`)}
+	bidderResp, errs := adg.MakeBids(&openrtb2.BidRequest{}, &adapters.RequestData{Body: []byte(`{}`)}, resp)
+	assert.Nil(t, bidderResp)
+	assert.Len(t, errs, 1)
+}
+
+// MakeBids: externalRequest / sentBody にまつわるガード分岐を網羅する。
+func TestMakeBidsExternalRequestGuards(t *testing.T) {
+	adg := newTestAdapter(t)
+	internal := &openrtb2.BidRequest{
+		Imp: []openrtb2.Imp{{ID: "imp-1", Banner: &openrtb2.Banner{}, Ext: json.RawMessage(`{"bidder":{"id":"58278"}}`)}},
+	}
+	goodResp := func() *adapters.ResponseData {
+		return &adapters.ResponseData{
+			StatusCode: http.StatusOK,
+			Body:       []byte(`{"locationid":"58278","results":[{"ad":"<body>x</body>","cpm":1}]}`),
+		}
+	}
+
+	t.Run("externalRequest が nil", func(t *testing.T) {
+		bidderResp, errs := adg.MakeBids(internal, nil, goodResp())
+		assert.Nil(t, bidderResp)
+		assert.Empty(t, errs)
+	})
+	t.Run("externalRequest.Body が空", func(t *testing.T) {
+		bidderResp, errs := adg.MakeBids(internal, &adapters.RequestData{}, goodResp())
+		assert.Nil(t, bidderResp)
+		assert.Empty(t, errs)
+	})
+	t.Run("sentBody が不正 JSON", func(t *testing.T) {
+		bidderResp, errs := adg.MakeBids(internal, &adapters.RequestData{Body: []byte(`not-json`)}, goodResp())
+		assert.Nil(t, bidderResp)
+		assert.Len(t, errs, 1)
+	})
+	t.Run("sentBody.Ortb に imp なし", func(t *testing.T) {
+		sentBody, _ := json.Marshal(adgRequestBody{})
+		bidderResp, errs := adg.MakeBids(internal, &adapters.RequestData{Body: sentBody}, goodResp())
+		assert.Nil(t, bidderResp)
+		assert.Empty(t, errs)
+	})
+	t.Run("sentBody の imp ID が internalRequest に存在しない", func(t *testing.T) {
+		sentBody, _ := json.Marshal(adgRequestBody{Ortb: openrtb2.BidRequest{Imp: []openrtb2.Imp{{ID: "no-such-imp"}}}})
+		bidderResp, errs := adg.MakeBids(internal, &adapters.RequestData{Body: sentBody}, goodResp())
+		assert.Nil(t, bidderResp)
+		assert.Empty(t, errs)
+	})
+}
+
+// MakeBids: native adm 組み立てが失敗した場合はエラーを返す (buildAdMarkup 経由)。
+func TestMakeBidsReturnsErrorWhenNativeAdmWrapFails(t *testing.T) {
+	adg := newTestAdapter(t)
+	internal := &openrtb2.BidRequest{
+		Imp: []openrtb2.Imp{{ID: "imp-1", Native: &openrtb2.Native{Request: `{}`}, Ext: json.RawMessage(`{"bidder":{"id":"58278"}}`)}},
+	}
+	resp := &adapters.ResponseData{
+		StatusCode: http.StatusOK,
+		Body:       []byte(`{"locationid":"58278","results":[{"native":{"assets":[{"id":1}],"imptrackers":"not-array"},"beaconurl":"https://b.example/bc","cpm":10}]}`),
+	}
+	sentBody, _ := json.Marshal(adgRequestBody{Ortb: openrtb2.BidRequest{Imp: []openrtb2.Imp{{ID: "imp-1"}}}})
+	bidderResp, errs := adg.MakeBids(internal, &adapters.RequestData{Body: sentBody}, resp)
 	assert.Nil(t, bidderResp)
 	assert.Len(t, errs, 1)
 }
