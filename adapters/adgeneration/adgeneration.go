@@ -18,11 +18,10 @@ import (
 	"github.com/prebid/prebid-server/v4/version"
 )
 
-// Prebid.js v1.6.6 (modules/adgenerationBidAdapter.js) とリクエスト/レスポンス
-// 仕様を揃えるため、エンドポイントは /adgen/prebid (POST + JSON Body)、
-// URLクエリは id / posall / sdktype のみとし、それ以外の情報は ortb body に
-// 載せて送信する。詳細な懸念点は
-// projects/prebid-server/research/parity-concerns.md を参照。
+// To keep the request/response format in parity with Prebid.js v1.6.6
+// (modules/adgenerationBidAdapter.js), this adapter targets the /adgen/prebid
+// endpoint (POST with a JSON body). Only id / posall / sdktype are sent as URL
+// query parameters; everything else travels in the ortb body.
 
 type AdgenerationAdapter struct {
 	endpoint        string
@@ -30,21 +29,23 @@ type AdgenerationAdapter struct {
 	defaultCurrency string
 }
 
-// adgRequestBody は POST body の JSON 構造。Prebid.js の `data` オブジェクト
-// (currency / pbver / sdkname / adapterver / ortb / imark) と一致させる。
+// adgRequestBody is the JSON structure of the POST body. It mirrors the
+// Prebid.js `data` object (currency / pbver / sdkname / adapterver / ortb / imark).
 type adgRequestBody struct {
 	Currency   string              `json:"currency"`
 	Pbver      string              `json:"pbver"`
 	Sdkname    string              `json:"sdkname"`
 	Adapterver string              `json:"adapterver"`
 	Ortb       openrtb2.BidRequest `json:"ortb"`
-	// imark は native でないとき (= banner) のみ 1 を送る。
-	// Prebid.js 側コメント「native以外にvideo等の対応が入った場合は要修正」を踏襲。
+	// imark is set to 1 only for non-native (i.e. banner) requests. This mirrors
+	// the Prebid.js adapter, whose comment notes it must be revisited if support
+	// for other media types such as video is added.
 	Imark int `json:"imark,omitempty"`
 }
 
-// adgServerResponse はバックエンド (d.socdm.com/adgen/prebid) の応答形式。
-// Prebid.js は body.results[0] から取り出すため、results 優先で読む。
+// adgServerResponse is the response format from the backend
+// (d.socdm.com/adgen/prebid). Prebid.js reads body.results[0], so results is
+// treated as the primary source.
 type adgServerResponse struct {
 	Locationid     string             `json:"locationid"`
 	LocationParams *adgLocationParams `json:"location_params,omitempty"`
@@ -96,7 +97,7 @@ func (adg *AdgenerationAdapter) MakeRequests(request *openrtb2.BidRequest, reqIn
 	bidRequestArray := make([]*adapters.RequestData, 0, len(request.Imp))
 	var errs []error
 
-	// Prebid.js は imp ごとに 1 リクエスト発行する。Prebid Server も同様にする。
+	// Prebid.js issues one request per imp; Prebid Server does the same.
 	for index := range request.Imp {
 		req, err := adg.buildRequest(request, index, headers)
 		if err != nil {
@@ -148,18 +149,19 @@ func (adg *AdgenerationAdapter) buildUri(id string, request *openrtb2.BidRequest
 	return uriObj.String(), nil
 }
 
-// detectSdkType はリクエスト元 (channel) と device.os から sdktype を決める。
-// バックエンド `/adgen/prebid` は sdktype で配信ロジックを切り替えるため、
-// Web 経由は "0"、Prebid Mobile (Android) は "1"、Prebid Mobile (iOS) は "2"
-// を入れる。Prebid.js (CSHB) は常に "0" を送るが、PBS は (B) PBJS+PBS / (C)
-// PBS only (Mobile SDK / AMP) など複数経路から呼ばれるため判定が必要。
+// detectSdkType derives the sdktype from the request origin (channel) and
+// device.os. The backend `/adgen/prebid` switches its delivery logic on
+// sdktype, so web traffic gets "0", Prebid Mobile (Android) gets "1", and
+// Prebid Mobile (iOS) gets "2". Prebid.js (client-side header bidding) always
+// sends "0", but PBS is reached through multiple paths (PBJS+PBS, or PBS-only
+// via a Mobile SDK / AMP), so it must detect the origin.
 //
-// 判定優先順位:
-//  1. ext.prebid.channel.name == "app" → mobile SDK 経由
-//  2. channel 不在なら BidRequest.App の存在で判定 (App があれば mobile)
-//  3. それ以外 → web (sdktype "0")
+// Resolution order:
+//  1. ext.prebid.channel.name == "app" -> mobile SDK
+//  2. no channel: fall back to the presence of BidRequest.App (App means mobile)
+//  3. otherwise -> web (sdktype "0")
 //
-// 1. または 2. に該当する場合は device.os で 1/2 に振り分け、OS 不明なら "0"。
+// When 1 or 2 matches, device.os selects 1/2; an unknown OS yields "0".
 func detectSdkType(request *openrtb2.BidRequest) string {
 	if !isAppContext(request) {
 		return "0"
@@ -179,8 +181,9 @@ func isAppContext(request *openrtb2.BidRequest) bool {
 	if name := requestChannelName(request); name != "" {
 		return strings.EqualFold(name, "app")
 	}
-	// channel 不在時のフォールバック: BidRequest.App があれば mobile app 扱い。
-	// (AMP / web から App が埋まることは通常なく、Prebid Mobile SDK が App を埋める)
+	// Fallback when no channel is present: treat it as a mobile app if
+	// BidRequest.App is set. (AMP / web rarely populate App, whereas the Prebid
+	// Mobile SDK does.)
 	return request.App != nil
 }
 
@@ -199,9 +202,10 @@ func requestChannelName(request *openrtb2.BidRequest) string {
 }
 
 func (adg *AdgenerationAdapter) buildBody(request *openrtb2.BidRequest, imp openrtb2.Imp) ([]byte, error) {
-	// ortb には単一 imp 構成の BidRequest を入れる (Prebid.js の挙動と同じ)。
-	// 元 request の他フィールド (site/app/device/user/source/regs/ext 等) は
-	// そのまま温存し、FPD/UserID/schain/SUA 等が自然にバックエンドへ届くようにする。
+	// ortb carries a BidRequest reduced to a single imp (same as Prebid.js). The
+	// other fields of the original request (site/app/device/user/source/regs/ext,
+	// etc.) are preserved as-is so that FPD/UserID/schain/SUA and the like reach
+	// the backend naturally.
 	ortbReq := *request
 	ortbReq.Imp = []openrtb2.Imp{imp}
 
@@ -217,8 +221,8 @@ func (adg *AdgenerationAdapter) buildBody(request *openrtb2.BidRequest, imp open
 		Adapterver: adg.version,
 		Ortb:       ortbReq,
 	}
-	// imark: native でない (= banner 想定) のとき 1。
-	// 懸念: Prebid.js 由来のフラグ。バックエンドでの正確な意味は未確認 (parity-concerns.md §8)。
+	// imark: set to 1 for non-native (assumed banner) requests. This flag
+	// originates from Prebid.js; its exact meaning on the backend is unverified.
 	if imp.Native == nil {
 		body.Imark = 1
 	}
@@ -241,9 +245,10 @@ func unmarshalExtImpAdgeneration(imp *openrtb2.Imp) (*openrtb_ext.ExtImpAdgenera
 	return &adgExt, nil
 }
 
-// getCurrency は Prebid.js (adgenerationBidAdapter.js: getCurrencyType) と同じ
-// 二択ロジック: request.Cur に USD が含まれていれば "USD"、それ以外は "JPY"。
-// 先頭通貨へのフォールバックは廃止 (EUR/GBP 等の素通しは仕様外)。
+// getCurrency follows the same either/or logic as Prebid.js
+// (adgenerationBidAdapter.js: getCurrencyType): return "USD" if request.Cur
+// contains USD, otherwise "JPY". Falling back to the first listed currency is
+// intentionally not supported (passing EUR/GBP etc. through is out of spec).
 func (adg *AdgenerationAdapter) getCurrency(request *openrtb2.BidRequest) string {
 	for _, c := range request.Cur {
 		if strings.EqualFold(c, "USD") {
@@ -276,12 +281,13 @@ func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, e
 		return nil, nil
 	}
 
-	// Prebid.js と同じく results[0] のみを採用 (1 imp / 1 リクエストのため)。
+	// Like Prebid.js, only results[0] is used (one imp per request).
 	adResult := bidResp.Results[0]
 
-	// Prebid.js は bidRequests.data.ortb.imp[0] を直接参照するので、こちらも
-	// 送信済 body から imp[0].id を取り出して対応 imp を引く。バックエンドが
-	// locationid を返さない / 値がずれていても silent no-bid にしないため。
+	// Prebid.js references bidRequests.data.ortb.imp[0] directly, so we do the
+	// same: take imp[0].id from the sent body and look up the matching imp. This
+	// avoids a silent no-bid when the backend omits locationid or returns a
+	// mismatched value.
 	if externalRequest == nil || len(externalRequest.Body) == 0 {
 		return nil, nil
 	}
@@ -332,17 +338,20 @@ func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, e
 	return bidResponse, nil
 }
 
-// buildAdMarkup は results[0] から AdM を構築する。Native レスポンスがあれば
-// それを優先し、無ければ banner (vastxml があれば動画タグ差し込み) として返す。
+// buildAdMarkup builds the AdM from results[0]. A native response takes
+// precedence; otherwise it is returned as a banner (injecting a video tag when
+// vastxml is present).
 func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *openrtb2.Imp) (openrtb_ext.BidType, string, error) {
-	// Native: バックエンドが返す native オブジェクトが OpenRTB native
-	// response ({"native": {...assets, link, imptrackers...}}) と互換である前提。
-	// Prebid.js (isNative) と同様、assets が非空のときのみ native として扱う。
+	// Native: assumes the native object returned by the backend is compatible
+	// with an OpenRTB native response ({"native": {...assets, link,
+	// imptrackers...}}). Like Prebid.js (isNative), it is treated as native only
+	// when assets is non-empty.
 	if len(adResult.Native) > 0 && imp.Native != nil && hasNativeAssets(adResult.Native) {
-		// AdM は OpenRTB native admarkup の JSON 文字列。
-		// バックエンドが {"native": {...}} 形式 / {assets:...} 直下のどちらでも、
-		// 最終的に {"native":{...}} 形式に揃え、beaconurl を imptrackers に追加する
-		// (Prebid.js: createNativeAd で beaconurl を impressionTrackers に push する挙動と一致)。
+		// AdM is the JSON string of the OpenRTB native admarkup. Whether the
+		// backend returns {"native": {...}} or the assets at the top level, it is
+		// normalized to {"native":{...}} and beaconurl is appended to imptrackers
+		// (matching Prebid.js createNativeAd, which pushes beaconurl onto
+		// impressionTrackers).
 		admBytes, err := wrapNativeAdm(adResult.Native, adResult.Beaconurl)
 		if err != nil {
 			return "", "", err
@@ -353,8 +362,9 @@ func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *
 	// Banner / Video-in-Banner
 	ad := adResult.Ad
 	if adResult.Vastxml != "" {
-		// Prebid.js は location_params.option.ad_type === "upper_billboard" のとき
-		// ADGBrowserM タグで差し込む。それ以外は APV タグ。
+		// Prebid.js injects the ADGBrowserM tag when
+		// location_params.option.ad_type === "upper_billboard"; otherwise it uses
+		// the APV tag.
 		if isUpperBillboard(locationParams) {
 			ad = wrapWithADGBrowserM(adResult.Vastxml, extractMarginTop(imp))
 		} else {
@@ -368,9 +378,10 @@ func buildAdMarkup(adResult *adgResult, locationParams *adgLocationParams, imp *
 	return openrtb_ext.BidTypeBanner, ad, nil
 }
 
-// hasNativeAssets は results[0].native の生 JSON に assets[] が 1 件以上あるかを返す。
-// Prebid.js isNative() (adResult.native.assets.length > 0) と同じ判定。
-// {"native":{...}} と {assets:...} 直下のどちらの形でも受け付ける。
+// hasNativeAssets reports whether the raw JSON of results[0].native contains at
+// least one entry in assets[]. This matches Prebid.js isNative()
+// (adResult.native.assets.length > 0) and accepts both the {"native":{...}} and
+// top-level {assets:...} shapes.
 func hasNativeAssets(raw json.RawMessage) bool {
 	var top map[string]json.RawMessage
 	if err := jsonutil.Unmarshal(raw, &top); err != nil {
@@ -396,9 +407,10 @@ func hasNativeAssets(raw json.RawMessage) bool {
 	return len(arr) > 0
 }
 
-// wrapNativeAdm は results[0].native の生 JSON を AdM 用にラップし、
-// beaconUrl を native.imptrackers に追加する。バックエンドが既に
-// {"native":{...}} 形式で返す場合と {"assets":...} 直下で返す場合の両方を吸収する。
+// wrapNativeAdm wraps the raw JSON of results[0].native for use as AdM and
+// appends beaconUrl to native.imptrackers. It absorbs both the case where the
+// backend already returns {"native":{...}} and the case where it returns the
+// assets at the top level.
 func wrapNativeAdm(raw json.RawMessage, beaconUrl string) ([]byte, error) {
 	var top map[string]json.RawMessage
 	if err := jsonutil.Unmarshal(raw, &top); err != nil {
@@ -451,12 +463,12 @@ func isUpperBillboard(p *adgLocationParams) bool {
 	return p.Option.AdType == "upper_billboard"
 }
 
-// encodeVastForJS は VAST XML を percent-encoding (unreserved 文字以外すべて %XX) し、
-// JS 側で decodeURIComponent して復元できる形にする。
-// adm に生の "<VAST" 文字列が入っていると Prebid Mobile iOS (PBMTransactionFactory) が
-// HTML バナーを VAST クリエイティブと誤判定して "VAST Parsing failed" になるため、
-// JS 文字列リテラルに埋め込む VAST は必ずエンコードする。
-// (decodeURIComponent は %XX を UTF-8 として解釈するためマルチバイトも安全)
+// encodeVastForJS percent-encodes VAST XML (every non-unreserved byte becomes
+// %XX) so that the JS side can restore it with decodeURIComponent. If the adm
+// contains a raw "<VAST" string, Prebid Mobile iOS (PBMTransactionFactory)
+// misidentifies the HTML banner as a VAST creative and fails with "VAST Parsing
+// failed", so VAST embedded in a JS string literal must always be encoded.
+// (decodeURIComponent interprets %XX as UTF-8, so multibyte input is safe too.)
 func encodeVastForJS(s string) string {
 	var b strings.Builder
 	for _, c := range []byte(s) {
@@ -480,9 +492,10 @@ func wrapWithAPV(impID, vastxml string) string {
 }
 
 func wrapWithADGBrowserM(vastxml, marginTop string) string {
-	// Prebid.js は bidder params.marginTop を ADGBrowserM.init({marginTop}) に渡す。
-	// Prebid Server では imp.ext.bidder.marginTop に置く (ExtImpAdgeneration.MarginTop)。
-	// 未指定時は Prebid.js と同じく '0'。
+	// Prebid.js passes bidder params.marginTop to ADGBrowserM.init({marginTop}).
+	// In Prebid Server it lives at imp.ext.bidder.marginTop
+	// (ExtImpAdgeneration.MarginTop). When unset it defaults to '0', same as
+	// Prebid.js.
 	if marginTop == "" {
 		marginTop = "0"
 	}
@@ -494,7 +507,7 @@ func wrapWithADGBrowserM(vastxml, marginTop string) string {
 		"</body>"
 }
 
-// extractMarginTop は imp.ext.bidder.marginTop を取り出す。取得失敗時は空文字。
+// extractMarginTop extracts imp.ext.bidder.marginTop. It returns an empty string on failure.
 func extractMarginTop(imp *openrtb2.Imp) string {
 	if imp == nil || len(imp.Ext) == 0 {
 		return ""
@@ -525,7 +538,7 @@ func removeWrapper(ad string) string {
 func Builder(bidderName openrtb_ext.BidderName, config config.Adapter, server config.Server) (adapters.Bidder, error) {
 	bidder := &AdgenerationAdapter{
 		config.Endpoint,
-		// Prebid.js v1.6.6 (ADGENE_PREBID_VERSION) と揃え、ADG プロトコルバージョンとして共通管理する。
+		// Aligned with Prebid.js v1.6.6 (ADGENE_PREBID_VERSION); managed as the shared ADG protocol version.
 		"1.6.6",
 		"JPY",
 	}

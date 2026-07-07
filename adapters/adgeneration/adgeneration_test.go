@@ -72,7 +72,7 @@ func TestBuildRequestPostsToAdgenPrebid(t *testing.T) {
 	assert.Equal(t, "58278", q.Get("id"))
 	assert.Equal(t, "SSPLOC", q.Get("posall"))
 	assert.Equal(t, "0", q.Get("sdktype"))
-	// パリティ確認: 旧 upstream で送っていた以下のクエリを送らない。
+	// Parity check: the following query params, which the old upstream sent, must not be sent.
 	for _, key := range []string{"hb", "t", "currency", "sdkname", "adapterver", "sizes", "tp", "transactionid", "appbundle", "appname", "idfa", "advertising_id"} {
 		assert.False(t, q.Has(key), "query %q should not be set", key)
 	}
@@ -125,8 +125,8 @@ func TestBuildRequestRejectsBadExt(t *testing.T) {
 	assert.Len(t, requests, 1, "valid imp should still produce a request")
 }
 
-// TestDetectSdkType は channel + device.os から sdktype を導出する挙動を網羅する。
-// バックエンド `/adgen/prebid` が sdktype で配信ロジックを切り替える前提。
+// TestDetectSdkType covers deriving sdktype from channel + device.os, on the
+// assumption that the backend `/adgen/prebid` switches delivery logic on sdktype.
 func TestDetectSdkType(t *testing.T) {
 	cases := []struct {
 		name string
@@ -168,7 +168,7 @@ func TestDetectSdkType(t *testing.T) {
 			want: "2",
 		},
 		{
-			name: "fallback: channel 不在で BidRequest.App のみ (android)",
+			name: "fallback: no channel, BidRequest.App only (android)",
 			req: &openrtb2.BidRequest{
 				App:    &openrtb2.App{Bundle: "com.example.app"},
 				Device: &openrtb2.Device{OS: "android"},
@@ -176,7 +176,7 @@ func TestDetectSdkType(t *testing.T) {
 			want: "1",
 		},
 		{
-			name: "fallback: channel 不在で BidRequest.App のみ (ios)",
+			name: "fallback: no channel, BidRequest.App only (ios)",
 			req: &openrtb2.BidRequest{
 				App:    &openrtb2.App{Bundle: "com.example.app"},
 				Device: &openrtb2.Device{OS: "ios"},
@@ -184,7 +184,7 @@ func TestDetectSdkType(t *testing.T) {
 			want: "2",
 		},
 		{
-			name: "app context だが device.os 不明 → 0",
+			name: "app context but unknown device.os -> 0",
 			req: &openrtb2.BidRequest{
 				Ext:    json.RawMessage(`{"prebid":{"channel":{"name":"app"}}}`),
 				App:    &openrtb2.App{Bundle: "com.example.app"},
@@ -193,12 +193,12 @@ func TestDetectSdkType(t *testing.T) {
 			want: "0",
 		},
 		{
-			name: "app と site が両方 nil → web 扱い",
+			name: "both app and site nil -> treated as web",
 			req:  &openrtb2.BidRequest{},
 			want: "0",
 		},
 		{
-			name: "app + site 両方ある場合は channel 優先 (channel=app)",
+			name: "channel wins when both app and site present (channel=app)",
 			req: &openrtb2.BidRequest{
 				Ext:    json.RawMessage(`{"prebid":{"channel":{"name":"app"}}}`),
 				App:    &openrtb2.App{Bundle: "com.example.app"},
@@ -208,7 +208,7 @@ func TestDetectSdkType(t *testing.T) {
 			want: "1",
 		},
 		{
-			name: "壊れた ext は channel 不在として扱う (= site があれば web)",
+			name: "malformed ext is treated as no channel (= web when site present)",
 			req: &openrtb2.BidRequest{
 				Ext:  json.RawMessage(`{not-json`),
 				Site: &openrtb2.Site{Page: "https://example.com/"},
@@ -216,7 +216,7 @@ func TestDetectSdkType(t *testing.T) {
 			want: "0",
 		},
 		{
-			name: "ext.prebid はあるが channel なし (= site があれば web)",
+			name: "ext.prebid present but no channel (= web when site present)",
 			req: &openrtb2.BidRequest{
 				Ext:  json.RawMessage(`{"prebid":{}}`),
 				Site: &openrtb2.Site{Page: "https://example.com/"},
@@ -231,8 +231,8 @@ func TestDetectSdkType(t *testing.T) {
 	}
 }
 
-// TestGetCurrency は Prebid.js (adgenerationBidAdapter.js: getCurrencyType) と同じ
-// 二択挙動: USD を含めば USD、それ以外は JPY。
+// TestGetCurrency covers the same either/or behavior as Prebid.js
+// (adgenerationBidAdapter.js: getCurrencyType): USD if USD is present, otherwise JPY.
 func TestGetCurrency(t *testing.T) {
 	adg := newTestAdapter(t)
 	cases := []struct {
@@ -284,7 +284,7 @@ func TestBuildAdMarkupVastUsesAPV(t *testing.T) {
 	assert.Contains(t, adm, "cdn.apvdr.com/js/VideoAd.min.js")
 }
 
-// vastxml に含まれる改行が JS 文字列リテラル内に残らないこと (Prebid.js: /\r?\n/g 相当)。
+// Newlines contained in vastxml must not remain inside the JS string literal (equivalent to Prebid.js: /\r?\n/g).
 func TestBuildAdMarkupVastStripsNewlinesInsideJsLiteral(t *testing.T) {
 	adResult := &adgResult{
 		Ad:      "<!DOCTYPE html><body></body>",
@@ -293,11 +293,11 @@ func TestBuildAdMarkupVastStripsNewlinesInsideJsLiteral(t *testing.T) {
 	imp := &openrtb2.Imp{ID: "imp-vast", Banner: &openrtb2.Banner{}}
 	_, adm, err := buildAdMarkup(adResult, nil, imp)
 	assert.NoError(t, err)
-	// APV.VideoAd(...).load('...') の引数内に改行が残ると JS 文字列が壊れる。
+	// A newline left inside the APV.VideoAd(...).load('...') argument would break the JS string.
 	assert.NotContains(t, adm, "load('<VAST>\r\nfoo")
 	assert.NotContains(t, adm, "load('<VAST>\nfoo")
-	// VAST は percent-encoding して decodeURIComponent で復元する
-	// (adm に生の "<VAST" が残ると Prebid Mobile iOS が VAST と誤判定するため)。
+	// VAST is percent-encoded and restored with decodeURIComponent
+	// (a raw "<VAST" left in the adm would make Prebid Mobile iOS misidentify it as VAST).
 	assert.Contains(t, adm, "load(decodeURIComponent('%3CVAST%3Efoobar%3C%2FVAST%3E'))")
 	assert.NotContains(t, adm, "<VAST>")
 }
@@ -312,8 +312,8 @@ func TestBuildAdMarkupADGBrowserMStripsNewlines(t *testing.T) {
 	_, adm, err := buildAdMarkup(adResult, loc, imp)
 	assert.NoError(t, err)
 	assert.NotContains(t, adm, "vastXml: '<VAST>\r\nfoo")
-	// VAST は percent-encoding して decodeURIComponent で復元する
-	// (adm に生の "<VAST" が残ると Prebid Mobile iOS が VAST と誤判定するため)。
+	// VAST is percent-encoded and restored with decodeURIComponent
+	// (a raw "<VAST" left in the adm would make Prebid Mobile iOS misidentify it as VAST).
 	assert.Contains(t, adm, "vastXml: decodeURIComponent('%3CVAST%3Efoo%3C%2FVAST%3E')")
 	assert.NotContains(t, adm, "<VAST>")
 }
@@ -331,7 +331,7 @@ func TestBuildAdMarkupVastUsesADGBrowserMOnUpperBillboard(t *testing.T) {
 	assert.Equal(t, openrtb_ext.BidTypeBanner, bidType)
 	assert.Contains(t, adm, "adg-browser-m.js")
 	assert.NotContains(t, adm, "apvad-")
-	// marginTop 未指定時は Prebid.js と同じく '0' を埋める。
+	// When marginTop is unset, fill in '0' just like Prebid.js.
 	assert.Contains(t, adm, "marginTop: '0'")
 }
 
@@ -381,11 +381,11 @@ func TestBuildAdMarkupNativeBeaconUrlDeduplicated(t *testing.T) {
 
 	_, adm, err := buildAdMarkup(adResult, nil, imp)
 	assert.NoError(t, err)
-	// 既に imptrackers に含まれている場合は重複追加しない。
+	// Do not add a duplicate when it is already present in imptrackers.
 	assert.Equal(t, 1, strings.Count(adm, "https://tg.example/bc"))
 }
 
-// Prebid.js isNative() 互換: assets が空/欠落なら native ではなく banner として扱う。
+// Prebid.js isNative() compatible: when assets is empty/missing, treat it as banner rather than native.
 func TestBuildAdMarkupFallsBackToBannerWhenNativeAssetsMissing(t *testing.T) {
 	cases := []struct {
 		name string
@@ -418,7 +418,7 @@ func TestBuildAdMarkupNativeAcceptsWrappedInput(t *testing.T) {
 	_, adm, err := buildAdMarkup(adResult, nil, imp)
 	assert.NoError(t, err)
 	assert.True(t, strings.HasPrefix(adm, `{"native":`))
-	// 入れ子 native を二重ラップしない (= 出力に "native" は 1 回しか現れない)。
+	// Do not double-wrap a nested native (= "native" appears only once in the output).
 	assert.Equal(t, 1, strings.Count(adm, `"native"`))
 	assert.Contains(t, adm, "https://tg.example/bc")
 }
@@ -492,17 +492,17 @@ func TestMakeRequestsReturnsErrorWhenNoImp(t *testing.T) {
 	assert.IsType(t, &errortypes.BadInput{}, errs[0])
 }
 
-// unmarshalExtImpAdgeneration の各エラー分岐を網羅する。
+// Covers each error branch of unmarshalExtImpAdgeneration.
 func TestUnmarshalExtImpAdgenerationErrors(t *testing.T) {
 	cases := []struct {
 		name    string
 		ext     json.RawMessage
-		wantMsg string // 空なら任意のエラーで可
+		wantMsg string // empty means any error is acceptable
 	}{
-		{"imp.ext が不正 JSON", json.RawMessage(`not-json`), ""},
-		{"bidder がオブジェクトでない", json.RawMessage(`{"bidder":"not-an-object"}`), ""},
-		{"id が空文字", json.RawMessage(`{"bidder":{"id":""}}`), "No Location ID in ExtImpAdgeneration."},
-		{"id キー欠落", json.RawMessage(`{"bidder":{"marginTop":"10"}}`), "No Location ID in ExtImpAdgeneration."},
+		{"invalid imp.ext JSON", json.RawMessage(`not-json`), ""},
+		{"bidder is not an object", json.RawMessage(`{"bidder":"not-an-object"}`), ""},
+		{"id is empty string", json.RawMessage(`{"bidder":{"id":""}}`), "No Location ID in ExtImpAdgeneration."},
+		{"id key missing", json.RawMessage(`{"bidder":{"marginTop":"10"}}`), "No Location ID in ExtImpAdgeneration."},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -517,21 +517,21 @@ func TestUnmarshalExtImpAdgenerationErrors(t *testing.T) {
 	}
 }
 
-// hasNativeAssets: ラップ/非ラップ + 不正入力の判定を網羅する (Prebid.js isNative 互換)。
+// hasNativeAssets: covers wrapped/unwrapped detection plus invalid input (Prebid.js isNative compatible).
 func TestHasNativeAssets(t *testing.T) {
 	cases := []struct {
 		name string
 		raw  string
 		want bool
 	}{
-		{"非ラップ + assets あり", `{"assets":[{"id":1}]}`, true},
-		{"ラップ + assets あり", `{"native":{"assets":[{"id":1}]}}`, true},
-		{"assets 空配列", `{"assets":[]}`, false},
-		{"assets キーなし", `{"link":{"url":"https://l.example/"}}`, false},
-		{"不正 JSON", `not-json`, false},
-		{"ラップ native がオブジェクトでない", `{"native":123}`, false},
-		{"assets が配列でない", `{"assets":"foo"}`, false},
-		{"ラップ assets が配列でない", `{"native":{"assets":"foo"}}`, false},
+		{"unwrapped with assets", `{"assets":[{"id":1}]}`, true},
+		{"wrapped with assets", `{"native":{"assets":[{"id":1}]}}`, true},
+		{"empty assets array", `{"assets":[]}`, false},
+		{"no assets key", `{"link":{"url":"https://l.example/"}}`, false},
+		{"invalid JSON", `not-json`, false},
+		{"wrapped native is not an object", `{"native":123}`, false},
+		{"assets is not an array", `{"assets":"foo"}`, false},
+		{"wrapped assets is not an array", `{"native":{"assets":"foo"}}`, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -540,20 +540,20 @@ func TestHasNativeAssets(t *testing.T) {
 	}
 }
 
-// wrapNativeAdm のエラー分岐 (top/native/imptrackers の unmarshal 失敗) を網羅する。
+// Covers the error branches of wrapNativeAdm (unmarshal failures for top/native/imptrackers).
 func TestWrapNativeAdmErrors(t *testing.T) {
-	// top の unmarshal 失敗
+	// top-level unmarshal failure
 	_, err := wrapNativeAdm(json.RawMessage(`not-json`), "")
 	assert.Error(t, err)
-	// ラップ native がオブジェクトでない
+	// wrapped native is not an object
 	_, err = wrapNativeAdm(json.RawMessage(`{"native":123}`), "")
 	assert.Error(t, err)
-	// imptrackers が文字列配列でない (beaconUrl 追記時のみ到達)
+	// imptrackers is not a string array (only reached when appending beaconUrl)
 	_, err = wrapNativeAdm(json.RawMessage(`{"assets":[{"id":1}],"imptrackers":"not-array"}`), "https://b.example/bc")
 	assert.Error(t, err)
 }
 
-// buildAdMarkup: native adm 組み立てで wrapNativeAdm がエラーを返す経路。
+// buildAdMarkup: the path where wrapNativeAdm returns an error while assembling the native adm.
 func TestBuildAdMarkupNativeWrapError(t *testing.T) {
 	adResult := &adgResult{
 		Native:    json.RawMessage(`{"assets":[{"id":1}],"imptrackers":"not-array"}`),
@@ -564,7 +564,7 @@ func TestBuildAdMarkupNativeWrapError(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// removeWrapper: <body> を含まない ad はそのまま返す (アンラップしない)。
+// removeWrapper: an ad without <body> is returned as-is (not unwrapped).
 func TestBuildAdMarkupBannerWithoutBodyTags(t *testing.T) {
 	adResult := &adgResult{Ad: "plain-ad-no-body"}
 	imp := &openrtb2.Imp{ID: "imp-1", Banner: &openrtb2.Banner{}}
@@ -574,7 +574,7 @@ func TestBuildAdMarkupBannerWithoutBodyTags(t *testing.T) {
 	assert.Equal(t, "plain-ad-no-body", adm)
 }
 
-// extractMarginTop: imp.ext が不正でも marginTop は空扱い ('0' に既定化) される。
+// extractMarginTop: even with a malformed imp.ext, marginTop is treated as empty (defaults to '0').
 func TestBuildAdMarkupUpperBillboardHandlesBadExt(t *testing.T) {
 	adResult := &adgResult{Ad: "<!DOCTYPE html><body></body>", Vastxml: "<VAST/>"}
 	loc := &adgLocationParams{Option: &adgLocationOption{AdType: "upper_billboard"}}
@@ -584,7 +584,7 @@ func TestBuildAdMarkupUpperBillboardHandlesBadExt(t *testing.T) {
 	assert.Contains(t, adm, "marginTop: '0'")
 }
 
-// MakeBids: 500 は BadServerResponse を返す。
+// MakeBids: a 500 returns BadServerResponse.
 func TestMakeBidsReturnsServerErrorOn500(t *testing.T) {
 	adg := newTestAdapter(t)
 	resp := &adapters.ResponseData{StatusCode: http.StatusInternalServerError}
@@ -594,7 +594,7 @@ func TestMakeBidsReturnsServerErrorOn500(t *testing.T) {
 	assert.IsType(t, &errortypes.BadServerResponse{}, errs[0])
 }
 
-// MakeBids: 200 でボディが不正 JSON の場合はエラー。
+// MakeBids: a 200 with an invalid JSON body returns an error.
 func TestMakeBidsReturnsErrorOnInvalidBody(t *testing.T) {
 	adg := newTestAdapter(t)
 	resp := &adapters.ResponseData{StatusCode: http.StatusOK, Body: []byte(`not-json`)}
@@ -603,7 +603,7 @@ func TestMakeBidsReturnsErrorOnInvalidBody(t *testing.T) {
 	assert.Len(t, errs, 1)
 }
 
-// MakeBids: externalRequest / sentBody にまつわるガード分岐を網羅する。
+// MakeBids: covers the guard branches around externalRequest / sentBody.
 func TestMakeBidsExternalRequestGuards(t *testing.T) {
 	adg := newTestAdapter(t)
 	internal := &openrtb2.BidRequest{
@@ -616,28 +616,28 @@ func TestMakeBidsExternalRequestGuards(t *testing.T) {
 		}
 	}
 
-	t.Run("externalRequest が nil", func(t *testing.T) {
+	t.Run("externalRequest is nil", func(t *testing.T) {
 		bidderResp, errs := adg.MakeBids(internal, nil, goodResp())
 		assert.Nil(t, bidderResp)
 		assert.Empty(t, errs)
 	})
-	t.Run("externalRequest.Body が空", func(t *testing.T) {
+	t.Run("externalRequest.Body is empty", func(t *testing.T) {
 		bidderResp, errs := adg.MakeBids(internal, &adapters.RequestData{}, goodResp())
 		assert.Nil(t, bidderResp)
 		assert.Empty(t, errs)
 	})
-	t.Run("sentBody が不正 JSON", func(t *testing.T) {
+	t.Run("sentBody is invalid JSON", func(t *testing.T) {
 		bidderResp, errs := adg.MakeBids(internal, &adapters.RequestData{Body: []byte(`not-json`)}, goodResp())
 		assert.Nil(t, bidderResp)
 		assert.Len(t, errs, 1)
 	})
-	t.Run("sentBody.Ortb に imp なし", func(t *testing.T) {
+	t.Run("sentBody.Ortb has no imp", func(t *testing.T) {
 		sentBody, _ := json.Marshal(adgRequestBody{})
 		bidderResp, errs := adg.MakeBids(internal, &adapters.RequestData{Body: sentBody}, goodResp())
 		assert.Nil(t, bidderResp)
 		assert.Empty(t, errs)
 	})
-	t.Run("sentBody の imp ID が internalRequest に存在しない", func(t *testing.T) {
+	t.Run("sentBody imp ID not found in internalRequest", func(t *testing.T) {
 		sentBody, _ := json.Marshal(adgRequestBody{Ortb: openrtb2.BidRequest{Imp: []openrtb2.Imp{{ID: "no-such-imp"}}}})
 		bidderResp, errs := adg.MakeBids(internal, &adapters.RequestData{Body: sentBody}, goodResp())
 		assert.Nil(t, bidderResp)
@@ -645,7 +645,7 @@ func TestMakeBidsExternalRequestGuards(t *testing.T) {
 	})
 }
 
-// MakeBids: native adm 組み立てが失敗した場合はエラーを返す (buildAdMarkup 経由)。
+// MakeBids: returns an error when assembling the native adm fails (via buildAdMarkup).
 func TestMakeBidsReturnsErrorWhenNativeAdmWrapFails(t *testing.T) {
 	adg := newTestAdapter(t)
 	internal := &openrtb2.BidRequest{

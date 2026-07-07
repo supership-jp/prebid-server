@@ -1,5 +1,4 @@
-# Prebid.js v1.6.6 と仕様を合わせる目的で /adgen/prebid (POST) に変更。
-# 詳細: projects/prebid-server/research/parity-concerns.md
+# Uses the /adgen/prebid (POST) endpoint to stay in parity with Prebid.js v1.6.6.
 endpoint: "https://d.socdm.com/adgen/prebid"
 maintainer:
   email: "ssp-ope@supership.jp"
