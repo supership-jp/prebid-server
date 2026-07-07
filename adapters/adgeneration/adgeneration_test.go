@@ -18,14 +18,14 @@ import (
 
 const testEndpoint = "https://d.socdm.com/adgen/prebid"
 
-func newTestAdapter(t *testing.T) *AdgenerationAdapter {
+func newTestAdapter(t *testing.T) *adapter {
 	t.Helper()
 	bidder, err := Builder(openrtb_ext.BidderAdgeneration, config.Adapter{Endpoint: testEndpoint},
 		config.Server{ExternalUrl: "http://hosturl.com", GvlID: 1, DataCenter: "2"})
 	if err != nil {
 		t.Fatalf("Builder returned unexpected error: %v", err)
 	}
-	return bidder.(*AdgenerationAdapter)
+	return bidder.(*adapter)
 }
 
 func TestJsonSamples(t *testing.T) {

@@ -23,7 +23,7 @@ import (
 // endpoint (POST with a JSON body). Only id / posall / sdktype are sent as URL
 // query parameters; everything else travels in the ortb body.
 
-type AdgenerationAdapter struct {
+type adapter struct {
 	endpoint        string
 	version         string
 	defaultCurrency string
@@ -77,7 +77,7 @@ type adgResult struct {
 	Native     json.RawMessage `json:"native,omitempty"`
 }
 
-func (adg *AdgenerationAdapter) MakeRequests(request *openrtb2.BidRequest, reqInfo *adapters.ExtraRequestInfo) ([]*adapters.RequestData, []error) {
+func (adg *adapter) MakeRequests(request *openrtb2.BidRequest, reqInfo *adapters.ExtraRequestInfo) ([]*adapters.RequestData, []error) {
 	if len(request.Imp) == 0 {
 		return nil, []error{&errortypes.BadInput{Message: "No impression in the bid request"}}
 	}
@@ -110,7 +110,7 @@ func (adg *AdgenerationAdapter) MakeRequests(request *openrtb2.BidRequest, reqIn
 	return bidRequestArray, errs
 }
 
-func (adg *AdgenerationAdapter) buildRequest(request *openrtb2.BidRequest, index int, headers http.Header) (*adapters.RequestData, error) {
+func (adg *adapter) buildRequest(request *openrtb2.BidRequest, index int, headers http.Header) (*adapters.RequestData, error) {
 	imp := request.Imp[index]
 	adgExt, err := unmarshalExtImpAdgeneration(&imp)
 	if err != nil {
@@ -136,7 +136,7 @@ func (adg *AdgenerationAdapter) buildRequest(request *openrtb2.BidRequest, index
 	}, nil
 }
 
-func (adg *AdgenerationAdapter) buildUri(id string, request *openrtb2.BidRequest) (string, error) {
+func (adg *adapter) buildUri(id string, request *openrtb2.BidRequest) (string, error) {
 	uriObj, err := url.Parse(adg.endpoint)
 	if err != nil {
 		return "", err
@@ -201,7 +201,7 @@ func requestChannelName(request *openrtb2.BidRequest) string {
 	return reqExt.Prebid.Channel.Name
 }
 
-func (adg *AdgenerationAdapter) buildBody(request *openrtb2.BidRequest, imp openrtb2.Imp) ([]byte, error) {
+func (adg *adapter) buildBody(request *openrtb2.BidRequest, imp openrtb2.Imp) ([]byte, error) {
 	// ortb carries a BidRequest reduced to a single imp (same as Prebid.js). The
 	// other fields of the original request (site/app/device/user/source/regs/ext,
 	// etc.) are preserved as-is so that FPD/UserID/schain/SUA and the like reach
@@ -249,7 +249,7 @@ func unmarshalExtImpAdgeneration(imp *openrtb2.Imp) (*openrtb_ext.ExtImpAdgenera
 // (adgenerationBidAdapter.js: getCurrencyType): return "USD" if request.Cur
 // contains USD, otherwise "JPY". Falling back to the first listed currency is
 // intentionally not supported (passing EUR/GBP etc. through is out of spec).
-func (adg *AdgenerationAdapter) getCurrency(request *openrtb2.BidRequest) string {
+func (adg *adapter) getCurrency(request *openrtb2.BidRequest) string {
 	for _, c := range request.Cur {
 		if strings.EqualFold(c, "USD") {
 			return "USD"
@@ -258,7 +258,7 @@ func (adg *AdgenerationAdapter) getCurrency(request *openrtb2.BidRequest) string
 	return adg.defaultCurrency
 }
 
-func (adg *AdgenerationAdapter) MakeBids(internalRequest *openrtb2.BidRequest, externalRequest *adapters.RequestData, response *adapters.ResponseData) (*adapters.BidderResponse, []error) {
+func (adg *adapter) MakeBids(internalRequest *openrtb2.BidRequest, externalRequest *adapters.RequestData, response *adapters.ResponseData) (*adapters.BidderResponse, []error) {
 	if response.StatusCode == http.StatusNoContent {
 		return nil, nil
 	}
@@ -536,7 +536,7 @@ func removeWrapper(ad string) string {
 
 // Builder builds a new instance of the Adgeneration adapter for the given bidder with the given config.
 func Builder(bidderName openrtb_ext.BidderName, config config.Adapter, server config.Server) (adapters.Bidder, error) {
-	bidder := &AdgenerationAdapter{
+	bidder := &adapter{
 		config.Endpoint,
 		// Aligned with Prebid.js v1.6.6 (ADGENE_PREBID_VERSION); managed as the shared ADG protocol version.
 		"1.6.6",
